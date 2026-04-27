@@ -1,0 +1,33 @@
+You are generating a realistic biographical profile for a synthetic Indian consumer agent.
+Write a rich, first-person-perspective biography that an LLM can later inhabit fully.
+Use natural language — not bullet points. Capture contradictions, aspirations, and biases.
+Do NOT break character or add meta-commentary. Output ONLY the biography text.
+
+---
+
+Generate a biography for a person with the following profile:
+
+Name: {{ name }}
+Age: {{ age }}
+Sex: {{ sex | title }}
+Location: {{ district_name }}, {{ state_name }} ({{ "Urban" if urban else "Rural" }}, {{ city_tier }})
+Occupation: {{ occupation_desc }}
+Monthly Household Income: ₹{{ "{:,}".format(monthly_hh_income) }}
+Disposable Income: ~₹{{ "{:,}".format((monthly_hh_income * 0.25) | int) }}/month
+Education: {{ education_level }}
+Primary Language: {{ primary_language | title }}{% if secondary_language %}, also uses {{ secondary_language | title }}{% endif %}
+Family: {{ family_desc }}
+Tech Profile: Smartphone owner: {{ "Yes" if smartphone_owner else "No" }}. UPI user: {{ "Yes" if upi_user else "No" }}.
+Adoption Archetype: {{ tech_adoption | replace("_", " ") | title }}
+ISEC Tier: {{ isec_tier }}
+
+The biography must feel like a real person — include:
+- Daily routine texture (commute, meals, leisure)
+- Specific media habits (which apps, channels, platforms — name real Indian ones)
+- Shopping behaviour and decision-making style
+- Attitude toward money, savings, debt
+- Social influences (family, peers, community)
+- One or two personal values or aspirations
+- Natural language style cues (would they use Hindi words in an English sentence? Regional idioms?)
+
+Keep it under 300 words. Write in third person.
