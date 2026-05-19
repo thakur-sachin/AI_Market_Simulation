@@ -20,22 +20,22 @@ import asyncio
 import math
 import random
 from collections import Counter
-from dataclasses import dataclass, field
 from typing import Any
 
-from launchlens.phase1.schemas import AgentPersona, AgeDistribution, DistrictProfile
 from launchlens.phase1.persona_gen import sample_demographic_vectors
+from launchlens.phase1.schemas import AgeDistribution, AgentPersona, DistrictProfile
 from launchlens.phase2.graph import build_graph, validate_small_world
 from launchlens.phase2.influencers import inject_influencers
-from launchlens.phase2.schemas import NodeMeta, SimGraph
-from launchlens.phase3.schemas import (
-    AgentDecision, AgentMemory, DecisionState,
-    PeerSignal, ProductStimulus, PROPAGATING_STATES,
-)
+from launchlens.phase2.schemas import SimGraph
 from launchlens.phase3.memory import MemoryStore
-from launchlens.phase3.feed import build_feed
+from launchlens.phase3.schemas import (
+    AgentDecision,
+    AgentMemory,
+    DecisionState,
+    PeerSignal,
+    ProductStimulus,
+)
 from launchlens.phase4.propagation import propagate_decisions
-
 
 # ── Mock district profile (Indore) ───────────────────────────────────────────
 
@@ -254,12 +254,12 @@ async def run_lite(
     n_timesteps: int = 8,
     seed: int = 42,
     verbose: bool = False,
-) -> SimulationLog:  # type: ignore[name-defined]
+):
     from launchlens.phase4.loop import SimulationLog, TimestepLog
 
     rng = random.Random(seed)
     print(f"\n{'═'*60}")
-    print(f"  LaunchLens Lite Simulation")
+    print("  LaunchLens Lite Simulation")
     print(f"  Agents: {n_agents}  │  Timesteps: {n_timesteps}  │  Seed: {seed}")
     print(f"{'═'*60}")
 

@@ -6,11 +6,9 @@ import random
 from launchlens.phase2.schemas import SimGraph
 from launchlens.phase3.schemas import (
     AgentMemory,
-    DecisionState,
     MarketplaceFeed,
     PeerSignal,
     ProductStimulus,
-    PROPAGATING_STATES,
 )
 
 _MARKET_NOISE = [
@@ -96,7 +94,7 @@ def render_feed_text(feed: MarketplaceFeed) -> str:
 
     if feed.peer_purchases:
         parts.append(
-            f"[PEER PURCHASES]\n"
+            "[PEER PURCHASES]\n"
             + "\n".join(f"  • {s.from_agent_id[:8]}… purchased this product." for s in feed.peer_purchases)
         )
 

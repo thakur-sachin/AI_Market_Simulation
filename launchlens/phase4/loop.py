@@ -11,13 +11,13 @@ from dataclasses import dataclass, field
 import structlog
 
 from launchlens.config import get_settings
-from launchlens.llm import LLMRoute, complete
+from launchlens.llm import LLMRoute, complete, get_usage_tracker, select_provider
 from launchlens.phase2.schemas import SimGraph
-from launchlens.phase3.schemas import AgentDecision, AgentMemory, ProductStimulus
-from launchlens.phase3.memory import MemoryStore
 from launchlens.phase3.feed import build_feed
-from launchlens.phase4.prompts import build_decision_prompt
+from launchlens.phase3.memory import MemoryStore
+from launchlens.phase3.schemas import AgentDecision, AgentMemory, ProductStimulus
 from launchlens.phase4.decisions import parse_decision
+from launchlens.phase4.prompts import build_decision_prompt
 from launchlens.phase4.propagation import propagate_decisions
 
 log = structlog.get_logger()
@@ -42,6 +42,7 @@ class SimulationLog:
     product_id: str
     n_agents: int
     timesteps: list[TimestepLog] = field(default_factory=list)
+    engine: str = "unknown"
 
     def adoption_curve(self) -> list[float]:
         """Cumulative BUY rate per timestep."""
@@ -53,6 +54,10 @@ class SimulationLog:
                     buyers.add(d.agent_id)
             curve.append(len(buyers) / self.n_agents if self.n_agents else 0.0)
         return curve
+
+    @property
+    def total_parse_failures(self) -> int:
+        return sum(t.parse_failures for t in self.timesteps)
 
 
 # ── Single-agent decision ─────────────────────────────────────────────────────
@@ -66,6 +71,7 @@ async def _agent_step(
     semaphore: asyncio.Semaphore,
     rng: random.Random,
     llm_route: LLMRoute,
+    engine_override: str | None,
 ) -> AgentDecision | None:
     memory = all_memories.get(agent_id)
     if memory is None:
@@ -84,6 +90,8 @@ async def _agent_step(
                 user=user,
                 temperature=0.85,
                 max_tokens=400,
+                json_mode=True,
+                engine_override=engine_override,
             )
         except Exception as e:
             log.warning("llm_call_failed", agent_id=agent_id, error=str(e))
@@ -121,17 +129,45 @@ async def run_simulation(
     batch_size: int | None = None,
     max_concurrent: int | None = None,
     seed: int | None = None,
+    engine_override: str | None = None,
 ) -> SimulationLog:
+    """Run the full interaction loop.
+
+    ``engine_override`` is propagated to every LLM call. ``max_concurrent``
+    defaults to the conservative local-VRAM limit so a default-config run on
+    the dev laptop does not OOM.
+    """
     batch_size = batch_size or _cfg.llm_batch_size
-    max_concurrent = max_concurrent or _cfg.llm_max_concurrent
+    # Resolve the engine once so we can pick concurrency limits + record it.
+    probe_provider = select_provider(LLMRoute.SARVAM, engine_override=engine_override)
+    is_local = probe_provider.name in ("ollama", "mock")
+    if max_concurrent is None:
+        max_concurrent = (
+            _cfg.llm_max_concurrent_local if is_local else _cfg.llm_max_concurrent_remote
+        )
+
     rng = random.Random(seed)
     sem = asyncio.Semaphore(max_concurrent)
 
     agent_ids = graph.node_ids
-    sim_log = SimulationLog(product_id=product.product_id, n_agents=len(agent_ids))
+    sim_log = SimulationLog(
+        product_id=product.product_id,
+        n_agents=len(agent_ids),
+        engine=probe_provider.name,
+    )
+
+    log.info(
+        "simulation_start",
+        product=product.product_id,
+        agents=len(agent_ids),
+        timesteps=n_timesteps,
+        engine=probe_provider.name,
+        model=probe_provider.model,
+        batch_size=batch_size,
+        max_concurrent=max_concurrent,
+    )
 
     for t in range(n_timesteps):
-        log.info("timestep_start", t=t, agents=len(agent_ids))
         ts_log = TimestepLog(timestep=t)
 
         # Load all memories
@@ -144,6 +180,7 @@ async def run_simulation(
                 _agent_step(
                     aid, product, graph, all_memories, t, sem, rng,
                     agent_llm_routes.get(aid, LLMRoute.SARVAM),
+                    engine_override,
                 )
                 for aid in batch
             ]
@@ -169,4 +206,8 @@ async def run_simulation(
         counts = ts_log.decision_counts()
         log.info("timestep_done", t=t, **counts, failures=ts_log.parse_failures)
 
+    usage = get_usage_tracker().summary()
+    log.info("simulation_done",
+             total_parse_failures=sim_log.total_parse_failures,
+             usage=usage)
     return sim_log

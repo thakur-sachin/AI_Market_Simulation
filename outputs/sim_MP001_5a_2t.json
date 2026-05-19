@@ -1,0 +1,18 @@
+{
+  "engine": "mock",
+  "agents": 5,
+  "adoption_curve": [
+    0.0,
+    0.0
+  ],
+  "parse_failures": 0,
+  "usage": {
+    "mock": {
+      "calls": 10,
+      "input_tokens": 2233,
+      "output_tokens": 530,
+      "cost_usd": 0.0,
+      "cache_hits": 0
+    }
+  }
+}

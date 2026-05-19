@@ -16,7 +16,7 @@ dependencies = [
     "redis>=5.0",
     # LLM / orchestration
     "anthropic>=0.40",
-    "openai>=1.50",          # Sarvam-105B uses OAI-compatible endpoint
+    "openai>=1.50",          # OpenAI-compatible client used for Sarvam + Ollama local
     "langgraph>=0.2",
     "jinja2>=3.1",
     # validation / analytics
@@ -37,15 +37,81 @@ dependencies = [
     "tenacity>=8.3",
     "python-dotenv>=1.0",
     "structlog>=24.1",
+    "diskcache>=5.6",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "mypy>=1.10"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM"]
+ignore = [
+    "E501",   # line length — covered by formatter
+    "N803",   # arg name lowercase (we use G for graph)
+    "N806",   # variable in function should be lowercase
+    "N802",   # function name lowercase
+    "N818",   # custom exception suffix (we use MissingAPIKey etc., conventional)
+    "B008",   # function call in default arg
+    "B905",   # zip(...) strict — Python 3.10+ default behavior is fine for us
+    "SIM117", # nested with statements
+    "UP042",  # StrEnum — keep (str, Enum) for pydantic serialization stability
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402", "N802", "F401"]
+"**/__init__.py" = ["F401"]   # re-exports
+"launchlens/sim_lite.py" = ["E741", "E702", "F841", "B905"]
+"launchlens/gui/sim_dashboard.py" = ["E702", "F841", "B905"]
+"launchlens/phase1/persona_gen.py" = ["F841", "B905"]
+"launchlens/phase1/sources/__init__.py" = ["F401"]
+"launchlens/phase2/graph.py" = ["E741"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = true
+follow_imports = "silent"
+show_error_codes = true
+# Strict typing enforced on validation / pure logic modules first.
+# Looser elsewhere until full coverage is achieved.
+
+[[tool.mypy.overrides]]
+module = "launchlens.phase5.*"
+disallow_untyped_defs = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "requires_ollama: requires a running Ollama server",
+    "requires_redis: requires REDIS_URL",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["launchlens"]
+omit = [
+    "launchlens/gui/*",
+    "launchlens/__init__.py",
+    "launchlens/*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

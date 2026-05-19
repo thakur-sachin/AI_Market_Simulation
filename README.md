@@ -3,151 +3,133 @@
 **Synthetic Market Intelligence Engine for Indian Consumer Markets**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Phase](https://img.shields.io/badge/phase-1--4%20complete-brightgreen.svg)](#project-status)
-[![Validation Target](https://img.shields.io/badge/target-<%208%25%20adoption%20deviation-orange.svg)](#phase-5--validation--calibration)
+[![Phase](https://img.shields.io/badge/phases-1--5%20wired-brightgreen.svg)](#project-status)
+[![Tests](https://img.shields.io/badge/tests-106%20passing-brightgreen.svg)](#running-tests)
 [![Methodology](https://img.shields.io/badge/methodology-He%20et%20al.%202024-purple.svg)](#research-foundation)
 
 ---
 
-LaunchLens simulates how real Indian consumers discover, evaluate, and decide on new products — before those products exist in the market. It builds a synthetic population of 1,000–5,000 LLM-powered agents drawn from actual Census, NFHS, and TRAI data, connects them in a realistic social network, and runs a week-by-week diffusion simulation. The output is not a survey or a focus group — it is a living, propagating social system that surfaces adoption curves, segment depth, message resonance, and objection maps.
+LaunchLens simulates how Indian consumers discover, evaluate, and decide on new products. It builds a synthetic population of LLM-powered agents drawn from Census, NFHS, and TRAI data, connects them in a Watts-Strogatz social network, and runs a week-by-week diffusion simulation. Phase 5 validates the simulation against historical Indian product launches.
 
-**Target accuracy:** <8% deviation from real-world adoption outcomes, validated against historical Indian product launches.
+**Current hardware target:** local development on an 8 GB VRAM NVIDIA laptop using **Ollama** with Qwen2.5-3B-Instruct (Q4). Remote providers (Sarvam, Claude) are wired as placeholders and activate automatically when their API keys are configured.
+
+**Long-term accuracy target:** <8% deviation from real-world adoption outcomes on Phase 5 calibration cases (currently scaffolded with placeholder ground truth; see `data/calibration/` and `KNOWN_GAPS.md`).
 
 ---
 
-## How It Works
+## Pipeline
 
 ```
-Census / NFHS-5 / TRAI data
-           │
-           ▼
+Census / NFHS-5 / TRAI / NSSO data        (real CSVs go in data/raw/)
+            │
+            ▼
 ┌─────────────────────────────┐
-│  Phase 1 · Bharat Diversity │  766 DistrictProfiles · stratified persona sampling
-│         Engine              │  Jinja2 biographies · diversity validation <5% drift
+│  Phase 1 · Diversity Engine │  per-field provenance: which source supplied what.
+│                             │  Stratified persona sampling. Diversity gate <5% drift.
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│  Phase 2 · Social Graph     │  Watts-Strogatz small-world (k=6-10, β=0.1-0.3)
-│                             │  Homophily ordering · 4 influencer archetypes
+│  Phase 2 · Social Graph     │  Watts-Strogatz small-world (k=6, β=0.15).
+│                             │  Homophily ordering + 4 influencer archetypes.
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│  Phase 3 · Sim Environment  │  ProductStimulus → per-agent feed
-│                             │  AgentMemory: Redis (episodic) + pgvector (semantic)
+│  Phase 3 · Sim Environment  │  ProductStimulus → per-agent feed.
+│                             │  In-memory MemoryStore (Redis optional).
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│  Phase 4 · Interaction Loop │  LLM decision per agent per timestep (≈1 week)
-│           ← core ─          │  9 decision states · 30% salience decay per hop
+│  Phase 4 · Interaction Loop │  LLM decision per agent (Ollama / Sarvam / Claude / mock).
+│                             │  Anti-positivity prior · JSON-mode parser · 30% salience decay.
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│  Phase 5 · Validation       │  5-metric calibration loop against real launches
-│           [planned]         │  Bias detection · DTW curve matching
-└─────────────┬───────────────┘
-              │
-              ▼
-┌─────────────────────────────┐
-│  Phase 6 · Analytics        │  8 deliverables: adoption curve, objection map,
-│           [planned]         │  segment depth, message resonance, FastAPI + React
+│  Phase 5 · Validation       │  5-metric calibration (adoption / DTW / segments /
+│                             │  Spearman / rejection alignment) + bias suite.
 └─────────────────────────────┘
 ```
 
+Phase 6 (NLP analytics, FastAPI, React dashboard) is **deferred** — see [`ROADMAP.md`](ROADMAP.md).
+
 ---
 
-## Quick Start
-
-### Option 1 — No infrastructure, no API keys (sim_lite)
-
-Runs a complete 100-agent simulation using a stochastic mock decision engine. No Redis, no pgvector, no LLM calls needed.
+## Quick Start (8 GB VRAM laptop, no API keys)
 
 ```bash
 git clone <repo>
 cd LaunchLensLab
 pip install -e ".[dev]"
 
-python -m launchlens.sim_lite --agents 100 --timesteps 8 --seed 42
-```
+# 1. Pull local models (~4 GB total). Requires Ollama running.
+bash scripts/setup_local_models.sh
 
-Output: colored terminal bar charts showing decision distribution, adoption curve, and consensus entropy per timestep.
+# 2. Build a district profile for Indore — uses real data if you've placed CSVs,
+#    otherwise marks every field as 'fallback' so you can see what's synthetic.
+python scripts/fetch_data_indore.py
 
-```
-  Timestep  6  │  Agents: 100  │  Cumulative adoption: 3.0%
-  ────────────────────────────────────────────────────────
-  IGNORE           ████████████████████████░░░░░░    80 (80.0%)
-  AWARE            ███░░░░░░░░░░░░░░░░░░░░░░░░░░░    10 (10.0%)
-  RESEARCH         █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     4 ( 4.0%)
-  CONSIDER         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     3 ( 3.0%)
-  BUY              ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     3 ( 3.0%)
-```
+# 3. Dry-run sim (heuristic decisions, no LLM). Works even if Ollama is stopped.
+python -m launchlens.cli run-sim --district MP001 --agents 50 --timesteps 4 --dry-run
 
-### Option 2 — Interactive Streamlit Dashboard
+# 4. Local-LLM sim on the 8 GB GPU.
+python -m launchlens.cli run-sim --district MP001 --agents 50 --timesteps 4 --engine local
 
-```bash
+# 5. Calibrate against Paper Boat Aam Panna ground-truth (placeholder values).
+python -m launchlens.cli calibrate --product paper_boat_aam_panna --district MP001 --engine local
+
+# 6. Dashboard
 streamlit run launchlens/gui/sim_dashboard.py
-# → http://localhost:8501
 ```
 
-Adjust agents (50–500), timesteps, seed, and product parameters from the sidebar. Three tabs:
-- **Overview** — stacked decision-state area chart + adoption curve / entropy evolution
-- **Network** — live social graph with timestep scrubber; nodes colored by decision state, influencer nodes enlarged
-- **Segments** — ISEC × state heatmap, adoption rate by tech archetype, propagation signal chart
+### Engine selection
 
-### Option 3 — Full pipeline with real LLMs
+`--engine {auto, mock, local, sarvam, claude}` (default `auto`). Auto resolves in order:
+1. Local Ollama if a matching model is pulled.
+2. Sarvam if `SARVAM_API_KEY` is set.
+3. Claude if `ANTHROPIC_API_KEY` is set.
+4. Mock (deterministic JSON IGNORE response) as the always-available fallback.
 
-```bash
-cp .env.example .env
-# Fill ANTHROPIC_API_KEY and SARVAM_API_KEY
+`--engine sarvam` or `--engine claude` without the matching API key raises a clear `MissingAPIKey` error rather than silently degrading.
 
-# Build district profiles from Census data
-python -m launchlens.cli ingest-census
+### Cost guardrails
 
-# Generate 1,000 personas for Indore with QA
-python -m launchlens.cli generate-personas --district Indore --n 1000 --seed 42
+`estimate_cost()` runs as a preflight before every `run-sim`. Local and mock are always $0. Remote runs above `cost_confirm_threshold_usd` (default $10) require `--confirm-cost`. Every completion is logged in `LLMUsageTracker` and surfaced as a KPI in the dashboard.
 
-# Run full simulation (Phase 4 loop.py — requires Redis + PostgreSQL)
-# See NEXT_STEPS.md for wiring instructions
-```
+Disk-backed `diskcache` keys responses by `sha256(provider + model + system + user + temp + json_mode)` — identical re-runs cost nothing.
 
 ---
 
 ## Architecture Reference
 
-### Phase 1 · Bharat Diversity Engine
+### Phase 1 · Diversity Engine
 
 | Module | Purpose |
 |---|---|
-| `phase1/schemas.py` | `DistrictProfile`, `DemographicVector`, `AgentPersona` Pydantic models |
-| `phase1/data_pipeline.py` | Builds district profiles from Census 2011 + NFHS-5 cross-reference |
-| `phase1/persona_gen.py` | Stratified sampler → Jinja2 biographies via LLM; 9 language name banks |
-| `phase1/persona_qa.py` | 5-prompt QA gate per persona; regenerates if ≥2/5 fail |
-| `templates/persona_bio.j2` | Biography template: daily routine, media habits, shopping behaviour, money attitude |
+| `phase1/schemas.py` | `DistrictProfile` with `provenance: dict[field, source]`; Pydantic validators on sums/bounds |
+| `phase1/data_pipeline.py` | Legacy single-source builder; kept for backward compatibility |
+| `phase1/sources/` | Per-source loaders (Census PCA, NFHS-5, TRAI, NSSO via `datagovindia`) |
+| `phase1/sources/__init__.py` | `load_district_profile_chain()` orchestrator; per-field provenance; `strict=True` raises on any fallback |
+| `phase1/persona_gen.py` | Stratified sampler; `enforce_population_diversity` (hard gate, <5% drift) |
+| `phase1/persona_qa.py` | 5-prompt QA per persona, wired through `--qa` on CLI |
 
-**Key design choices:**
-- Agents are sampled adult-only (15+) with ±15% stochastic income variation within ISEC tier
-- ISEC/NCCS 12-tier classification (A1–E3) drives price sensitivity, LLM routing, and social influence
-- `validate_population_diversity()` checks urban/rural, ISEC, language marginals to within <5% of source data
+**Data files (not shipped):** drop into `data/raw/{census,nfhs,trai,nsso}/`. Source URLs are printed by `scripts/fetch_data_indore.py` when a file is missing.
 
 ### Phase 2 · Social Graph
 
 | Module | Purpose |
 |---|---|
-| `phase2/graph.py` | Watts-Strogatz builder with homophily pre-ordering; small-world validation |
+| `phase2/graph.py` | Watts-Strogatz builder with homophily pre-ordering; small-world σ validation |
 | `phase2/influencers.py` | Injects 4 influencer archetypes; rewires edges to target degree ranges |
-| `phase2/schemas.py` | `SimGraph`, `NodeMeta`, `InfluencerArchetype` |
 
-**Homophily without explicit rules:** agents are sorted by `(district, ISEC band, age band, language)` before ring construction. Demographically similar agents become k-nearest neighbors — emergent community structure, no special rules needed. This replicates the He et al. (2024) finding that LLM agents reproduce homophily from persona prompts alone.
-
-**Influencer archetypes:**
+**Influencer multipliers (UNCALIBRATED — see `KNOWN_GAPS.md`):**
 
 | Archetype | Share | Degree | Awareness mult | Trust mult |
 |---|---|---|---|---|
-| Family Elder | 10% | 3–5 | 1.0× | **2.0×** |
-| Local Shopkeeper | 3% | 15–25 | **1.5×** | 1.0× |
+| Family Elder | 10% | 3–5 | 1.0× | 2.0× |
+| Local Shopkeeper | 3% | 15–25 | 1.5× | 1.0× |
 | Micro-Influencer | 0.8% | 50–200 | 1.3× | 0.8× |
 | WhatsApp Hub | 6.5% | 10–15 | 1.2× | 1.0× |
 
@@ -156,117 +138,67 @@ python -m launchlens.cli generate-personas --district Indore --n 1000 --seed 42
 | Module | Purpose |
 |---|---|
 | `phase3/schemas.py` | `ProductStimulus`, `AgentMemory`, `PeerSignal`, `AgentDecision`, `MarketplaceFeed` |
-| `phase3/memory.py` | `MemoryStore` with `InMemoryBackend` (always on) and `RedisMemoryBackend` (production) |
-| `phase3/feed.py` | Builds personalized per-agent feed; deduplicates signals, caps at 5 reviews / 3 purchases |
+| `phase3/memory.py` | `MemoryStore` (in-memory by default; optional Redis backend behind `REDIS_URL`) |
+| `phase3/feed.py` | Per-agent feed: 1 ad + ≤5 peer reviews + ≤3 purchases + competitor + noise; deduplicated by source |
 
-**Memory architecture:**
-- **Tier 1 (episodic):** rolling 10-event buffer per agent — Redis in production, in-memory for dev
-- **Tier 2 (semantic):** `product_opinion` text + pgvector embedding for similarity retrieval
-
-**9 Decision States:**
-
-```
-IGNORE → AWARE → RESEARCH → CONSIDER → BUY
-                                  ↓
-                    SHARE_POSITIVE / COMPLAIN
-          REJECT ←────── (at any point)
-                    SHARE_NEGATIVE
-```
-
-States that propagate to the social network: `BUY`, `SHARE_POSITIVE`, `SHARE_NEGATIVE`, `COMPLAIN`
+> **Note:** Two-tier (Redis + pgvector) memory is not implemented. Only Tier-1 episodic exists today. See `ROADMAP.md`.
 
 ### Phase 4 · Interaction Loop
 
 | Module | Purpose |
 |---|---|
-| `phase4/loop.py` | Main async simulation loop; batched LLM calls; `SimulationLog`, `TimestepLog` |
-| `phase4/prompts.py` | Decision prompt: biography + episodic buffer + product opinion + feed |
-| `phase4/decisions.py` | Parses structured `AgentDecision` from LLM output; fuzzy fallback for malformed responses |
-| `phase4/propagation.py` | Social signal fan-out to direct neighbors; 30% salience decay per hop |
-| `sim_lite.py` | Self-contained mock simulation — no external infrastructure required |
+| `phase4/loop.py` | Async batch loop; engine-aware concurrency limits; `SimulationLog.total_parse_failures` |
+| `phase4/prompts.py` | JSON-output decision prompt with **anti-positivity prior** |
+| `phase4/decisions.py` | Two-stage parser (JSON first, fielded-text fallback); returns `None` on failure (no silent IGNORE coercion) |
+| `phase4/propagation.py` | Social fan-out; 30% salience decay per hop; 1.5× COMPLAIN boost |
+| `sim_lite.py` | Self-contained stochastic heuristic engine — no LLM required |
 
-**Propagation mechanics:**
-- Each `PROPAGATING_STATE` decision fans out to all direct network neighbors
-- `base_salience = archetype_multiplier × complain_boost (1.5× for complaints)`
-- Signals decay 30% per timestep; pruned below 0.05 salience floor
-- Family Elder trust signals carry 2× weight in BUY probability calculation
+**9 decision states**, propagating: `BUY`, `SHARE_POSITIVE`, `SHARE_NEGATIVE`, `COMPLAIN`.
+
+### Phase 5 · Validation & Calibration
+
+| Module | Purpose |
+|---|---|
+| `phase5/metrics.py` | adoption rate deviation, DTW (via `dtaidistance`, with DP fallback), top-segment accuracy, regional Spearman, rejection alignment (sentence-transformers, with Jaccard fallback) |
+| `phase5/bias.py` | Affluence, positivity, homogeneity (Gini), language sample-for-review |
+| `phase5/calibration.py` | `CalibrationCase` loader → `CalibrationReport` with gates and structured tuning signals |
+| `data/calibration/*.json` | Three shipped cases (Paper Boat / mamaearth / boAt) with **placeholder ground truth** — real curves still to be collected |
+
+**Gates (default):**
+| Metric | Gate |
+|---|---|
+| Adoption rate deviation | < 0.08 |
+| DTW curve distance | < 0.15 |
+| Top-3 segment accuracy | ≥ 2 of 3 |
+| Regional Spearman | > 0.70 |
+| Rejection alignment | ≥ 2 of 3 |
 
 ---
 
-## LLM Routing
+## LLM Layer
 
-The dual-model routing is critical for demographic authenticity. Western LLMs systematically misrepresent lower-income, rural, and regional-language consumers.
+Provider-agnostic dispatch via `launchlens.llm.complete()`:
 
-| Agent Profile | Primary Model | Fallback |
+```python
+from launchlens.llm import LLMRoute, complete
+
+text = await complete(
+    route=LLMRoute.SARVAM,            # routing hint (English-premium → CLAUDE, else SARVAM)
+    system=prompt_system,
+    user=prompt_user,
+    json_mode=True,
+    engine_override="auto",           # auto | mock | local | sarvam | claude
+)
+```
+
+| Provider | Activation | Cost |
 |---|---|---|
-| English, SEC A/B, urban | Claude Sonnet 4.6 | GPT-4o-mini |
-| Hindi / Hinglish, any SEC | Sarvam-105B | Sarvam-M (24B) |
-| Regional language (Tamil, Telugu, Bengali, etc.) | Sarvam-105B | BharatGen Param 2 |
-| Rural, SEC D/E, low literacy | Sarvam-105B + constrained prompt | Sarvam-M |
+| `OllamaProvider` | Reachable Ollama + model pulled | $0 |
+| `SarvamProvider` | `SARVAM_API_KEY` set | per-token list price |
+| `ClaudeProvider` | `ANTHROPIC_API_KEY` set | per-token list price |
+| `MockProvider` | Always (last-resort fallback) | $0 |
 
-Sarvam-105B uses an OpenAI-compatible endpoint — `launchlens/llm.py` routes transparently via `LLMRoute.CLAUDE` or `LLMRoute.SARVAM`.
-
-**Cost target:** ~$95–$190 per 5,000-agent, 12-timestep run (≈60,000 LLM calls).
-
----
-
-## Key Data Contracts
-
-<details>
-<summary><strong>DistrictProfile</strong> — one JSON per district, 766 total</summary>
-
-```python
-DistrictProfile(
-    district_id="MP001",
-    district_name="Indore",
-    population=3_276_697,
-    age_distribution=AgeDistribution(...),   # 5-year buckets, sums to 1
-    sex_ratio=920,                           # females per 1000 males
-    urban_share=0.70,
-    literacy_rate=0.82,
-    language_distribution={"hindi": 0.85, "urdu": 0.08, "english": 0.07},
-    isec_distribution={"A1": 0.03, ..., "E3": 0.04},   # sums to 1
-    smartphone_penetration=0.62,             # derived from TRAI + NFHS
-    internet_penetration=0.50,
-    upi_adoption=0.38,
-)
-```
-</details>
-
-<details>
-<summary><strong>ProductStimulus</strong> — client-provided product brief</summary>
-
-```python
-ProductStimulus(
-    product_id="prod_001",
-    product_name="FreshBite Protein Bar",
-    category="Health & Nutrition",
-    price_mrp=99, price_launch=79,
-    key_features=["20g protein", "No added sugar", "Mango / Chocolate flavors"],
-    distribution_channels=["Amazon India", "BigBasket", "Modern Trade"],
-    marketing_copy="Fuel your grind. India's first truly tasty protein bar.",
-    competitor_context="Yoga Bar (₹50-80), RiteBite Max (₹80-120)",
-    target_segment="Health-conscious urban millennials, 22-35, SEC A/B",
-)
-```
-</details>
-
-<details>
-<summary><strong>AgentDecision</strong> — structured LLM output per agent per timestep</summary>
-
-```python
-AgentDecision(
-    agent_id="agent_0042",
-    product_id="prod_001",
-    timestep=5,
-    internal_reasoning="Given my income of ₹28,000...",  # source for message resonance analytics
-    decision="CONSIDER",                                  # one of 9 states
-    primary_reason="Comparing with Yoga Bar before committing.",
-    would_discuss_with="friends",                         # family | friends | colleagues | no_one
-    language_of_discussion="hindi",
-)
-```
-</details>
+Default local models (8 GB VRAM safe): `qwen2.5:3b-instruct-q4_K_M` (multilingual, default route), `gemma2:2b-instruct-q4_K_M` (fast), `sarvam-1:2b` (Indic, if imported via `ollama create`).
 
 ---
 
@@ -276,44 +208,48 @@ AgentDecision(
 cp .env.example .env
 ```
 
-```env
-# LLM APIs
-ANTHROPIC_API_KEY=sk-ant-...
-SARVAM_API_KEY=...
-SARVAM_BASE_URL=https://api.sarvam.ai/v1
-
-# Storage (optional for dev — falls back to in-memory)
-POSTGRES_URL=postgresql://user:pass@localhost:5432/launchlens
-REDIS_URL=redis://localhost:6379/0
-
-# Simulation
-DEFAULT_AGENT_COUNT=1000
-LLM_BATCH_SIZE=200
-LLM_MAX_CONCURRENT=50
-```
-
-All settings are validated on startup via `pydantic-settings`. If `REDIS_URL` is unset, `MemoryStore` falls back silently to the in-memory backend.
+| Variable | Default | Notes |
+|---|---|---|
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Local Ollama OpenAI-compatible endpoint |
+| `OLLAMA_DEFAULT_MODEL` | `qwen2.5:3b-instruct-q4_K_M` | Default route |
+| `OLLAMA_INDIC_MODEL` | same as default | Override to `sarvam-1:2b` once imported |
+| `OLLAMA_FAST_MODEL` | `gemma2:2b-instruct-q4_K_M` | Smaller/faster |
+| `LAUNCHLENS_ENGINE` | `auto` | `auto / mock / local / sarvam / claude` |
+| `SARVAM_API_KEY` | *unset* | Activates `SarvamProvider` when set |
+| `ANTHROPIC_API_KEY` | *unset* | Activates `ClaudeProvider` when set |
+| `REDIS_URL` | *unset* | Optional Tier-1 episodic memory backend |
+| `LLM_MAX_CONCURRENT_LOCAL` | 4 | Per-VRAM concurrency limit for Ollama |
+| `LLM_MAX_CONCURRENT_REMOTE` | 8 | Default concurrency for paid providers |
+| `MAX_PROMPT_TOKENS` | 3500 | Q4 3B model + 4K context headroom |
 
 ---
 
 ## Running Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest                    # all tests
-pytest tests/test_phase1  # phase 1 only
-pytest -v -k "graph"      # by keyword
+pytest                            # all 106 tests
+pytest tests/test_phase5          # validation metrics only
+pytest -v -k "parse"              # by keyword
+pytest --cov=launchlens           # with coverage report
 ```
-
-**Current coverage:**
 
 | Suite | Tests | Status |
 |---|---|---|
-| `tests/test_phase1/test_schemas.py` | 9 tests — schema validation, ISEC disaggregation, stratified sampling, diversity, income bounds | ✅ All pass |
-| `tests/test_phase2/test_graph.py` | 11 tests — node count, connectivity, degree, small-world σ, homophily, influencer proportions, serialization | ✅ All pass |
-| `tests/test_phase3/` | Memory CRUD, feed construction, peer signal dedup | 🔲 Planned |
-| `tests/test_phase4/` | Decision parser edge cases, propagation counts, adoption curve shape | 🔲 Planned |
-| `tests/test_phase5/` | Metric calculation against known calibration fixtures | 🔲 Planned |
+| `tests/test_phase1/test_schemas.py` | 9 | ✅ |
+| `tests/test_phase1/test_sources.py` | 6 — provenance chain, schema validators | ✅ |
+| `tests/test_phase2/test_graph.py` | 11 | ✅ |
+| `tests/test_phase3/test_memory.py` | 7 | ✅ |
+| `tests/test_phase3/test_feed.py` | 6 | ✅ |
+| `tests/test_phase4/test_decisions.py` | 13 — JSON & fielded parser, no silent fallback | ✅ |
+| `tests/test_phase4/test_prompts.py` | 4 — anti-positivity prior + JSON output | ✅ |
+| `tests/test_phase4/test_propagation.py` | 7 — decay, COMPLAIN boost, idempotency | ✅ |
+| `tests/test_phase4/test_loop_e2e.py` | 2 — deterministic-LLM cascade + parse failure surfacing | ✅ |
+| `tests/test_phase4/test_llm_provider.py` | 9 — provider selection, cost, missing keys | ✅ |
+| `tests/test_phase5/test_metrics.py` | 18 — 5 metrics, known-answer fixtures | ✅ |
+| `tests/test_phase5/test_bias.py` | 7 — affluence / positivity / homogeneity | ✅ |
+| `tests/test_phase5/test_calibration.py` | 7 — case loading, report, tuning signals | ✅ |
+
+CI runs `ruff check`, `ruff format --check`, `mypy launchlens/` (advisory), and `pytest --cov-fail-under=30` on every PR.
 
 ---
 
@@ -321,82 +257,28 @@ pytest -v -k "graph"      # by keyword
 
 | Phase | Description | Status |
 |---|---|---|
-| **1** | Bharat Diversity Engine — district profiles + persona generation | ✅ Complete |
-| **2** | Social Graph — small-world construction + influencer injection | ✅ Complete |
-| **3** | Simulation Environment — memory, feed, product stimulus | ✅ Complete |
-| **4** | Interaction Loop — LLM decisions, propagation, simulation log | ✅ Complete |
-| **4b** | `sim_lite` — zero-infra mock simulation + Streamlit dashboard | ✅ Complete |
-| **5** | Validation & Calibration — 5-metric loop against real launches | 🔲 Next |
-| **6** | Analytics & Output — 8 deliverables, FastAPI, React dashboard | 🔲 Planned |
-
-See [`NEXT_STEPS.md`](NEXT_STEPS.md) for the full implementation roadmap with prioritized actions, infra setup, and 18-week milestone gates.
+| 1 | Diversity Engine (sources + provenance) | ✅ Implemented; **needs real CSVs** for live profiles |
+| 2 | Social Graph | ✅ Implemented; influencer multipliers uncalibrated |
+| 3 | Memory + Feed (Tier-1 only) | ✅ Implemented; Tier-2 pgvector deferred |
+| 4 | Interaction Loop (mock + Ollama + remote placeholders) | ✅ Implemented |
+| 5 | Validation & Calibration | ✅ Machinery implemented; **needs real ground truth** |
+| 6 | NLP analytics, FastAPI, React | 🔲 Deferred — see `ROADMAP.md` |
 
 ---
 
-## Project Structure
+## Documentation
 
-```
-LaunchLensLab/
-├── launchlens/
-│   ├── config.py              # pydantic-settings; get_settings() with @lru_cache
-│   ├── llm.py                 # LLMRoute enum + unified complete() + routing logic
-│   ├── cli.py                 # ingest-census, generate-personas commands
-│   ├── sim_lite.py            # self-contained mock simulation (no infra needed)
-│   ├── phase1/
-│   │   ├── schemas.py         # DistrictProfile, DemographicVector, AgentPersona
-│   │   ├── data_pipeline.py   # Census + NFHS data ingestion and disaggregation
-│   │   ├── persona_gen.py     # stratified sampler + async LLM bio generation
-│   │   └── persona_qa.py      # 5-prompt QA gate per persona
-│   ├── phase2/
-│   │   ├── graph.py           # Watts-Strogatz builder + small-world validation
-│   │   ├── influencers.py     # archetype injection + propagation multipliers
-│   │   └── schemas.py         # SimGraph, NodeMeta, InfluencerArchetype
-│   ├── phase3/
-│   │   ├── schemas.py         # ProductStimulus, AgentMemory, PeerSignal, AgentDecision
-│   │   ├── memory.py          # MemoryStore + InMemoryBackend + RedisMemoryBackend
-│   │   └── feed.py            # personalized per-agent MarketplaceFeed builder
-│   ├── phase4/
-│   │   ├── loop.py            # run_simulation() + SimulationLog + TimestepLog
-│   │   ├── prompts.py         # system + user prompt templates for agent decisions
-│   │   ├── decisions.py       # LLM output parser with fuzzy fallback
-│   │   └── propagation.py     # social signal fan-out + salience decay
-│   ├── phase5/                # validation & calibration [planned]
-│   ├── phase6/                # analytics & output [planned]
-│   └── gui/
-│       └── sim_dashboard.py   # Streamlit dashboard
-├── templates/
-│   └── persona_bio.j2         # Jinja2 biography template
-├── tests/
-│   ├── test_phase1/           # 9 tests
-│   └── test_phase2/           # 11 tests
-├── .env.example
-├── pyproject.toml
-├── CLAUDE.md                  # architecture reference for AI assistants
-└── NEXT_STEPS.md              # full implementation roadmap
-```
+- `CLAUDE.md` — architecture reference (auto-loaded by Claude Code sessions)
+- `ROADMAP.md` — deferred items: pgvector, LangGraph, Neo4j, FastAPI, React, NLP analytics
+- `KNOWN_GAPS.md` — ungrounded constants and missing data, treated as a living ledger
+- `NEXT_STEPS.md` — older roadmap (kept for historical context; superseded by `ROADMAP.md`)
 
 ---
 
 ## Research Foundation
 
-This system is grounded in the He et al. (2024) *Societies.io* study (British Journal of Psychology), which demonstrated that 33,299 LLM-powered chatbots on Chirper.ai — given only persona prompts with no explicit social rules — spontaneously reproduced empirically measured homophily, community formation, and information cascade patterns from real social networks.
+Grounded in He et al. (2024) *Societies.io* (British Journal of Psychology): 33,299 LLM-powered chatbots given only persona prompts spontaneously reproduced empirically measured homophily, community formation, and information cascade patterns.
 
-**Why ABM and not a Genetic Algorithm?** A GA converges toward a homogeneous "super-buyer" population by selecting for fitness. ABM preserves population heterogeneity — agents persist, information propagates through a social structure, and diversity of adoption timing and rejection reasoning is what makes the output analytically useful. Market heterogeneity *is* the signal.
+**Why ABM and not a Genetic Algorithm?** A GA converges toward a homogeneous "super-buyer" by selecting for fitness. ABM preserves population heterogeneity — agents persist, information propagates, and diversity of adoption timing and rejection reasoning is what makes the output analytically useful.
 
-Additional methodology: Toubia et al. (2025) and Arora et al. (2025) demonstrate that prompt-augmented LLMs outperform fine-tuned models for behavioral prediction tasks — LaunchLens uses prompt engineering exclusively, not fine-tuning.
-
----
-
-## Simulation Parameters
-
-| Parameter | Default | Range | Notes |
-|---|---|---|---|
-| Agents per run | 1,000 | 100–5,000 | Start with 100 for dev |
-| Timestep duration | 1 week | — | Real-world calendar equivalent |
-| Run length | 12 timesteps | 4–24 | 3–6 months of market activity |
-| Social graph degree k | 6 | 6–10 | Product-relevant social circle |
-| Rewiring probability β | 0.15 | 0.1–0.3 | Cross-demographic bridge edges |
-| Salience decay per hop | 30% | — | `_SALIENCE_DECAY = 0.70` |
-| Salience floor | 0.05 | — | Signals below this are dropped |
-| LLM batch size | 200 | 100–500 | Async, semaphore-controlled |
-| Target throughput | 50–100 agents/s | — | AWS c6i.2xlarge |
+Additional methodology: Toubia et al. (2025), Arora et al. (2025) — prompt-augmented LLMs outperform fine-tuned models for behavioral prediction.

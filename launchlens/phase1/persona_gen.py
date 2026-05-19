@@ -6,15 +6,15 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import structlog
 from jinja2 import Environment, FileSystemLoader
 
 from launchlens.config import get_settings
-from launchlens.llm import LLMRoute, complete, route_for_agent
+from launchlens.llm import complete, route_for_agent
 from launchlens.phase1.schemas import (
     AgentPersona,
     DemographicVector,
@@ -158,7 +158,7 @@ def sample_demographic_vectors(
     _BUCKET_RANGES = {
         "bucket_0_4": (0, 4), "bucket_5_14": (5, 14), "bucket_15_24": (15, 24),
         "bucket_25_34": (25, 34), "bucket_35_44": (35, 44), "bucket_45_54": (45, 54),
-        "bucket_55_64": (55, 64), "bucket_65_plus": (65, 80),
+        "bucket_55_64": (55, 64), "bucket_65_plus": (65, 95),   # fixed: was (65, 80)
     }
     # Only sample working-age adults (15+) as consumer agents
     adult_buckets = [b for b in age_buckets if b != "bucket_0_4" and b != "bucket_5_14"]
@@ -284,6 +284,24 @@ async def generate_personas(
 
 # ── Diversity validation ─────────────────────────────────────────────────────
 
+class DiversityCheckFailure(RuntimeError):
+    """Raised when a generated population deviates beyond ``threshold`` on any marginal."""
+
+
+def enforce_population_diversity(
+    personas: Sequence[AgentPersona],
+    profile: DistrictProfile,
+    threshold: float = 0.05,
+) -> None:
+    """Hard gate: raise ``DiversityCheckFailure`` if any marginal deviates beyond ``threshold``."""
+    flags = validate_population_diversity(personas, profile, threshold=threshold)
+    if flags:
+        joined = "; ".join(f"{dim}: {issues}" for dim, issues in flags.items())
+        raise DiversityCheckFailure(
+            f"Population marginals deviate beyond {threshold:.0%}: {joined}"
+        )
+
+
 def validate_population_diversity(
     personas: Sequence[AgentPersona],
     profile: DistrictProfile,
@@ -322,8 +340,8 @@ def validate_population_diversity(
     # Language (top 3 only)
     lang_sim: dict[str, float] = {}
     for p in personas:
-        l = p.demographic.primary_language
-        lang_sim[l] = lang_sim.get(l, 0) + 1 / n
+        lang = p.demographic.primary_language
+        lang_sim[lang] = lang_sim.get(lang, 0) + 1 / n
     top_langs = dict(sorted(profile.language_distribution.items(), key=lambda x: -x[1])[:3])
     _check("language", lang_sim, top_langs)
 

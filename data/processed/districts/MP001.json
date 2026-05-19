@@ -1,0 +1,57 @@
+{
+  "district_id": "MP001",
+  "district_name": "Indore",
+  "state_name": "Madhya Pradesh",
+  "population": 1000000,
+  "age_distribution": {
+    "bucket_0_4": 0.09,
+    "bucket_5_14": 0.18,
+    "bucket_15_24": 0.18,
+    "bucket_25_34": 0.17,
+    "bucket_35_44": 0.14,
+    "bucket_45_54": 0.1,
+    "bucket_55_64": 0.07,
+    "bucket_65_plus": 0.07
+  },
+  "sex_ratio": 930.0,
+  "urban_share": 0.35,
+  "literacy_rate": 0.74,
+  "language_distribution": {
+    "hindi": 0.85,
+    "english": 0.1,
+    "other": 0.05
+  },
+  "isec_distribution": {
+    "A1": 0.0202,
+    "A2": 0.0302,
+    "A3": 0.0502,
+    "B1": 0.0702,
+    "B2": 0.0802,
+    "C1": 0.1,
+    "C2": 0.12,
+    "D1": 0.14,
+    "D2": 0.1498,
+    "E1": 0.0998,
+    "E2": 0.0798,
+    "E3": 0.0598
+  },
+  "median_monthly_hh_expenditure": 13769,
+  "smartphone_penetration": 0.52,
+  "internet_penetration": 0.494,
+  "upi_adoption": 0.2275,
+  "census_year": 2011,
+  "nfhs_round": 5,
+  "provenance": {
+    "population": "fallback",
+    "sex_ratio": "fallback",
+    "urban_share": "fallback",
+    "literacy_rate": "fallback",
+    "age_distribution": "fallback",
+    "language_distribution": "fallback",
+    "isec_distribution": "fallback",
+    "smartphone_penetration": "fallback",
+    "internet_penetration": "fallback",
+    "upi_adoption": "fallback",
+    "median_monthly_hh_expenditure": "fallback"
+  }
+}

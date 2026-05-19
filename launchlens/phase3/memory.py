@@ -7,7 +7,6 @@ enabling the lightweight sim to run without infrastructure.
 """
 from __future__ import annotations
 
-import json
 from typing import Protocol
 
 import structlog

@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import structlog
 
-from launchlens.phase2.schemas import SimGraph
 from launchlens.phase2.influencers import get_propagation_multiplier
+from launchlens.phase2.schemas import SimGraph
 from launchlens.phase3.schemas import (
+    PROPAGATING_STATES,
     AgentDecision,
     AgentMemory,
     PeerSignal,
-    PROPAGATING_STATES,
 )
 
 log = structlog.get_logger()

@@ -1,0 +1,20 @@
+{
+  "product_id": "paper_boat_aam_panna",
+  "product_name": "Paper Boat Aam Panna",
+  "category": "Beverages",
+  "district_id": "MP001",
+  "real_adoption_curve": [0.0, 0.01, 0.03, 0.06, 0.09, 0.12, 0.14, 0.15],
+  "real_top3_segments": ["A2", "B1", "B2"],
+  "real_top3_rejections": [
+    "Too expensive compared to fresh aam panna from home or street vendors",
+    "Unfamiliar with packaged ethnic drinks; trust home preparation more",
+    "Sweet/sugar content concerns among diabetic and health-conscious buyers"
+  ],
+  "real_district_rates": {},
+  "category_reject_benchmark": 0.45,
+  "source_citations": [
+    "PLACEHOLDER — replace with AC Nielsen IRI panel data Q1-Q4 2018",
+    "PLACEHOLDER — Hector Beverages annual report disclosures",
+    "PLACEHOLDER — Mintel India 2018 packaged-beverage adoption survey"
+  ]
+}

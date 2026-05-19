@@ -1,0 +1,20 @@
+{
+  "product_id": "boat_airdopes_141",
+  "product_name": "boAt Airdopes 141",
+  "category": "Consumer Electronics",
+  "district_id": "MP001",
+  "real_adoption_curve": [0.0, 0.02, 0.05, 0.09, 0.13, 0.16, 0.18, 0.19],
+  "real_top3_segments": ["A2", "A3", "B1"],
+  "real_top3_rejections": [
+    "Concerns about battery life and durability in budget TWS segment",
+    "Sound quality perceived as inferior to wired/branded alternatives",
+    "Warranty and after-sales service uncertainty for online-only purchase"
+  ],
+  "real_district_rates": {},
+  "category_reject_benchmark": 0.35,
+  "source_citations": [
+    "PLACEHOLDER — IDC India quarterly TWS tracker",
+    "PLACEHOLDER — Flipkart product reviews aggregated 2022",
+    "PLACEHOLDER — Counterpoint Research TWS market analysis 2022"
+  ]
+}

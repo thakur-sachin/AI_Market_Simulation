@@ -4,7 +4,6 @@ Watts-Strogatz small-world topology with homophily-biased ring ordering.
 """
 from __future__ import annotations
 
-import json
 import math
 import random
 from pathlib import Path
@@ -13,7 +12,7 @@ import networkx as nx
 import structlog
 
 from launchlens.phase1.schemas import AgentPersona
-from launchlens.phase2.schemas import InfluencerArchetype, NodeMeta, SimGraph
+from launchlens.phase2.schemas import NodeMeta, SimGraph
 
 log = structlog.get_logger()
 
@@ -130,7 +129,6 @@ def to_sim_graph(
     k: int,
     beta: float,
 ) -> SimGraph:
-    persona_map = {p.agent_id: p for p in personas}
     adj: dict[str, list[str]] = {n: list(G.neighbors(n)) for n in G.nodes()}
     return SimGraph(
         node_ids=list(G.nodes()),

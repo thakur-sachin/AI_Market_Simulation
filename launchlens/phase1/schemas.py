@@ -4,13 +4,12 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, field_validator
 
 # ── Demographic building blocks ──────────────────────────────────────────────
 
 class AgeDistribution(BaseModel):
-    """Population share per 5-year bucket."""
+    """Population share per Census age bucket."""
     bucket_0_4: float = 0.0
     bucket_5_14: float = 0.0
     bucket_15_24: float = 0.0
@@ -20,8 +19,8 @@ class AgeDistribution(BaseModel):
     bucket_55_64: float = 0.0
     bucket_65_plus: float = 0.0
 
-    def validate_sums_to_one(self) -> bool:
-        return abs(sum(self.model_dump().values()) - 1.0) < 0.02
+    def validate_sums_to_one(self, tolerance: float = 0.02) -> bool:
+        return abs(sum(self.model_dump().values()) - 1.0) < tolerance
 
 
 ISECTier = Literal["A1","A2","A3","B1","B2","C1","C2","D1","D2","E1","E2","E3"]
@@ -33,11 +32,13 @@ OccupationCategory = Literal[
 
 TechAdoptionArchetype = Literal["innovator", "early_adopter", "early_majority", "late_majority", "laggard"]
 
+DataSource = Literal["census", "nfhs", "trai", "nsso", "baseline", "manual", "fallback"]
+
 
 # ── DistrictProfile ──────────────────────────────────────────────────────────
 
 class DistrictProfile(BaseModel):
-    """District-level demographic profile. Normalized to all major data sources."""
+    """District-level demographic profile. Normalized across data sources."""
 
     district_id: str           # Census district code
     district_name: str
@@ -58,13 +59,55 @@ class DistrictProfile(BaseModel):
     median_monthly_hh_expenditure: int         # INR
 
     # Tech access
-    smartphone_penetration: float    # 0–1 (derived from TRAI + NFHS)
+    smartphone_penetration: float    # 0–1
     internet_penetration: float      # 0–1
-    upi_adoption: float              # 0–1 (proxy: NPCI data)
+    upi_adoption: float              # 0–1
 
     # Source metadata
     census_year: int = 2011
     nfhs_round: int = 5
+
+    # Per-field provenance. Keys correspond to public attribute names; values name
+    # the data source that supplied the value. "fallback" means a baseline was used
+    # because the upstream source was unavailable.
+    provenance: dict[str, DataSource] = Field(default_factory=dict)
+
+    # ── Validators ───────────────────────────────────────────────────────
+
+    @field_validator("sex_ratio")
+    @classmethod
+    def _sex_ratio_bounds(cls, v: float) -> float:
+        if not 600 <= v <= 1200:
+            raise ValueError(f"sex_ratio {v} outside plausible range [600, 1200]")
+        return v
+
+    @field_validator("urban_share", "literacy_rate",
+                     "smartphone_penetration", "internet_penetration", "upi_adoption")
+    @classmethod
+    def _zero_to_one(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"value {v} not in [0, 1]")
+        return v
+
+    @field_validator("language_distribution")
+    @classmethod
+    def _language_sums_to_one(cls, v: dict[str, float]) -> dict[str, float]:
+        if not v:
+            raise ValueError("language_distribution cannot be empty")
+        total = sum(v.values())
+        if abs(total - 1.0) > 0.05:
+            raise ValueError(f"language_distribution sums to {total:.3f}, expected ≈ 1")
+        return v
+
+    @field_validator("isec_distribution")
+    @classmethod
+    def _isec_sums_to_one(cls, v: dict) -> dict:
+        if not v:
+            raise ValueError("isec_distribution cannot be empty")
+        total = sum(v.values())
+        if abs(total - 1.0) > 0.05:
+            raise ValueError(f"isec_distribution sums to {total:.3f}, expected ≈ 1")
+        return v
 
 
 # ── AgentPersona ─────────────────────────────────────────────────────────────
