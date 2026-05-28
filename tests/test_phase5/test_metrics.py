@@ -1,93 +1,142 @@
-"""Phase 5 metrics tests."""
+"""Phase 5 metric correctness — known-answer fixture tests."""
+from __future__ import annotations
+
+import math
+
+import pytest
+
 from launchlens.phase5.metrics import (
     adoption_rate_deviation,
     dtw_curve_distance,
-    top_segment_accuracy,
+    passes_all_gates,
     regional_spearman,
     rejection_reason_alignment,
-    evaluate_all,
+    top_segment_accuracy,
 )
 
 
-def test_adoption_rate_deviation_exact_match():
-    assert adoption_rate_deviation(0.05, 0.05) == 0.0
+# adoption_rate_deviation ────────────────────────────────────────────────────
+
+def test_adoption_rate_deviation_identical():
+    assert adoption_rate_deviation(0.15, 0.15) == 0.0
 
 
-def test_adoption_rate_deviation_absolute():
-    assert abs(adoption_rate_deviation(0.10, 0.06) - 0.04) < 1e-9
+def test_adoption_rate_deviation_proportional():
+    # |0.20 - 0.15| / 0.15 = 0.333…
+    assert adoption_rate_deviation(0.20, 0.15) == pytest.approx(1 / 3, abs=1e-3)
 
 
-def test_dtw_zero_for_identical_curves():
-    curve = [0.01, 0.02, 0.04, 0.07, 0.10]
-    assert dtw_curve_distance(curve, curve) < 0.01
+def test_adoption_rate_deviation_real_zero_inf():
+    assert adoption_rate_deviation(0.1, 0.0) == float("inf")
 
 
-def test_dtw_small_for_shape_match_different_scale():
-    sim = [0.02, 0.04, 0.08, 0.14, 0.20]
-    real = [0.01, 0.02, 0.04, 0.07, 0.10]
-    d = dtw_curve_distance(sim, real)
-    # Same shape → normalized DTW should be small
-    assert d < 0.2
+def test_adoption_rate_deviation_both_zero():
+    assert adoption_rate_deviation(0.0, 0.0) == 0.0
 
 
-def test_top_segment_accuracy_full_match():
-    sim = ["urban_A1-A3", "urban_B1-B2", "urban_C1-C2"]
-    real = ["urban_A1-A3", "urban_B1-B2", "urban_C1-C2"]
-    assert top_segment_accuracy(sim, real) == 3
+# dtw_curve_distance ─────────────────────────────────────────────────────────
+
+def test_dtw_identical_curves_zero():
+    curve = [0.0, 0.02, 0.05, 0.09, 0.12]
+    assert dtw_curve_distance(curve, curve) == pytest.approx(0.0, abs=1e-6)
 
 
-def test_top_segment_accuracy_partial():
-    sim = ["urban_A1-A3", "rural_E1-E3", "rural_D1-D2"]
-    real = ["urban_A1-A3", "urban_B1-B2", "urban_C1-C2"]
-    assert top_segment_accuracy(sim, real) == 1
+def test_dtw_increases_with_divergence():
+    curve_a = [0.0, 0.02, 0.05, 0.09, 0.12]
+    curve_b = [0.0, 0.10, 0.20, 0.30, 0.40]
+    d_same = dtw_curve_distance(curve_a, curve_a)
+    d_diff = dtw_curve_distance(curve_a, curve_b)
+    assert d_diff > d_same
 
 
-def test_top_segment_accuracy_case_insensitive():
-    sim = ["URBAN_A1-A3"]
-    real = ["urban_a1-a3"]
-    assert top_segment_accuracy(sim, real) == 1
+def test_dtw_handles_empty():
+    assert math.isinf(dtw_curve_distance([], [0.1]))
 
 
-def test_regional_spearman_perfect_correlation():
-    sim = {"d1": 0.10, "d2": 0.07, "d3": 0.04, "d4": 0.01}
-    real = {"d1": 0.12, "d2": 0.08, "d3": 0.05, "d4": 0.02}
-    assert regional_spearman(sim, real) > 0.99
+# top_segment_accuracy ───────────────────────────────────────────────────────
+
+def test_top_segment_full_overlap():
+    assert top_segment_accuracy(["A1", "A2", "B1"], ["A1", "A2", "B1"]) == 3
 
 
-def test_regional_spearman_inverse():
-    sim = {"d1": 0.10, "d2": 0.07, "d3": 0.04, "d4": 0.01}
-    real = {"d1": 0.01, "d2": 0.04, "d3": 0.07, "d4": 0.10}
-    assert regional_spearman(sim, real) < -0.99
+def test_top_segment_partial_overlap():
+    assert top_segment_accuracy(["A1", "A2", "B2"], ["A1", "B1", "B2"]) == 2
 
 
-def test_regional_spearman_disjoint_keys_returns_zero():
-    assert regional_spearman({"d1": 0.1}, {"d2": 0.1}) == 0.0
+def test_top_segment_no_overlap():
+    assert top_segment_accuracy(["C1", "C2", "D1"], ["A1", "A2", "B1"]) == 0
 
 
-def test_rejection_alignment_falls_back_without_embedder(monkeypatch):
-    """Force the fallback by stubbing sentence-transformers import."""
-    from launchlens.phase5 import metrics as m
-    monkeypatch.setattr(m, "_embedder", lambda: None)
-
-    sim = ["price is too high for daily use", "tastes overly sweet", "bottle too small"]
-    real = ["too expensive for daily consumption", "too sweet", "small bottle"]
-    score = rejection_reason_alignment(sim, real)
-    assert score >= 2
+def test_top_segment_case_insensitive():
+    assert top_segment_accuracy(["a1", "A2"], ["A1", "a2"]) == 2
 
 
-def test_evaluate_all_returns_five_gates():
-    rep = evaluate_all(
-        product_id="x",
-        sim_rate=0.05, real_rate=0.06,
-        sim_curve=[0.01, 0.03, 0.05], real_curve=[0.01, 0.03, 0.06],
-        sim_top_segments=["a", "b", "c"], real_top_segments=["a", "b", "c"],
-        sim_district_rates={"d1": 0.1, "d2": 0.05}, real_district_rates={"d1": 0.1, "d2": 0.05},
-        sim_reject_reasons=["too expensive"], real_reject_reasons=["price too high"],
-    )
-    assert len(rep.results) == 5
-    metric_names = {r.metric for r in rep.results}
-    assert metric_names == {
-        "adoption_rate_deviation", "dtw_curve_distance",
-        "top_segment_accuracy", "regional_spearman",
-        "rejection_reason_alignment",
+# regional_spearman ──────────────────────────────────────────────────────────
+
+def test_spearman_perfect_correlation():
+    sim = {"a": 0.1, "b": 0.2, "c": 0.3, "d": 0.4}
+    real = {"a": 0.05, "b": 0.10, "c": 0.20, "d": 0.40}
+    assert regional_spearman(sim, real) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_spearman_anticorrelation():
+    sim = {"a": 0.1, "b": 0.2, "c": 0.3, "d": 0.4}
+    real = {"a": 0.4, "b": 0.3, "c": 0.2, "d": 0.1}
+    assert regional_spearman(sim, real) == pytest.approx(-1.0, abs=1e-6)
+
+
+def test_spearman_too_few_districts_nan():
+    sim = {"a": 0.1, "b": 0.2}
+    real = {"a": 0.05, "b": 0.10}
+    rho = regional_spearman(sim, real)
+    assert math.isnan(rho)
+
+
+# rejection_reason_alignment ─────────────────────────────────────────────────
+
+def test_rejection_alignment_exact_match():
+    sim = [
+        "Too expensive for the value provided",
+        "Brand is unfamiliar to me",
+        "Quality concerns from peer reviews",
+    ]
+    real = [
+        "Too expensive for the value provided",   # near-identical
+        "Brand recognition is low",
+        "Quality is questionable",
+    ]
+    # Jaccard fallback should match at least 1; sentence-transformers would match 3.
+    assert rejection_reason_alignment(sim, real) >= 1
+
+
+def test_rejection_alignment_empty_returns_zero():
+    assert rejection_reason_alignment([], ["a", "b"]) == 0
+    assert rejection_reason_alignment(["a", "b"], []) == 0
+
+
+# passes_all_gates ───────────────────────────────────────────────────────────
+
+def test_gates_pass_all_when_thresholds_met():
+    metrics = {
+        "adoption_rate_deviation": 0.05,
+        "dtw_curve_distance": 0.10,
+        "top_segment_accuracy": 3,
+        "regional_spearman": 0.85,
+        "rejection_reason_alignment": 2,
     }
+    gates = passes_all_gates(metrics)
+    assert all(gates.values())
+
+
+def test_gates_fail_when_below_threshold():
+    metrics = {
+        "adoption_rate_deviation": 0.50,   # FAIL
+        "dtw_curve_distance": 0.10,
+        "top_segment_accuracy": 1,         # FAIL
+        "regional_spearman": 0.85,
+        "rejection_reason_alignment": 2,
+    }
+    gates = passes_all_gates(metrics)
+    assert gates["adoption_rate_deviation"] is False
+    assert gates["top_segment_accuracy"] is False
+    assert gates["dtw_curve_distance"] is True

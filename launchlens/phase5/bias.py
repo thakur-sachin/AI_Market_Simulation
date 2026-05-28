@@ -1,193 +1,170 @@
-"""
-Phase 5 — Bias detection suite.
+"""Pre-calibration bias detection suite.
 
-Run before every calibration cycle to surface systematic distortions in the
-agent population's outputs:
-  - affluence_bias:  Are SEC D/E agents over- or under-buying vs published benchmarks?
-  - positivity_bias: Is REJECT rate suspiciously low (LLMs tend to over-generate BUY)?
-  - homogeneity_bias: Within a single ISEC tier, do agents differ enough? (Gini > 0.3)
-  - language_bias:   Placeholder — requires human raters; surfaces samples to review.
+Each function returns a dict so the calibration report can dump everything to
+JSON. None of these *gate* a run by themselves — they surface signals the
+operator must address before trusting the validation metrics.
 """
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
-from typing import Sequence
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 from launchlens.phase1.schemas import AgentPersona
 from launchlens.phase3.schemas import AgentDecision
 
-
-@dataclass
-class BiasFlag:
-    name: str
-    value: float
-    threshold: str
-    flagged: bool
-    note: str = ""
+_UPPER_TIERS = ("A1", "A2", "A3", "B1", "B2")
+_LOWER_TIERS = ("D1", "D2", "E1", "E2", "E3")
 
 
-# ── Affluence bias ───────────────────────────────────────────────────────────
-
-_LOWER_TIERS = {"D1", "D2", "E1", "E2", "E3"}
+def _buy_rate(decisions: Iterable[AgentDecision], agent_ids: set[str]) -> float:
+    matching = [d for d in decisions if d.agent_id in agent_ids]
+    if not matching:
+        return 0.0
+    return sum(1 for d in matching if d.decision == "BUY") / len(matching)
 
 
 def affluence_bias(
     decisions: Sequence[AgentDecision],
     personas: Sequence[AgentPersona],
-    expected_low_tier_buy_rate: float = 0.05,
-    tolerance: float = 0.20,
-) -> BiasFlag:
-    """
-    Compare D/E tier BUY rate against an expected benchmark.
-    Default benchmark: 5% (rural/low-income tend to be slow adopters of premium SKUs).
-    Flag if abs deviation > 20%.
-    """
-    persona_by_id = {p.agent_id: p for p in personas}
-    low_tier_ids = {p.agent_id for p in personas if p.demographic.isec_tier in _LOWER_TIERS}
-    if not low_tier_ids:
-        return BiasFlag("affluence_bias", 0.0, "n/a", False, "no low-tier agents in population")
+    flag_threshold: float = 0.20,
+) -> dict:
+    """Compare upper-tier vs lower-tier BUY rates. Flag if upper:lower ratio is implausible."""
+    upper_ids = {p.agent_id for p in personas if p.demographic.isec_tier in _UPPER_TIERS}
+    lower_ids = {p.agent_id for p in personas if p.demographic.isec_tier in _LOWER_TIERS}
+    upper_rate = _buy_rate(decisions, upper_ids)
+    lower_rate = _buy_rate(decisions, lower_ids)
 
-    # Best decision per agent: BUY if ever reached, else final state
-    ever_buy: set[str] = set()
-    for d in decisions:
-        if d.agent_id in low_tier_ids and d.decision == "BUY":
-            ever_buy.add(d.agent_id)
+    # We expect upper > lower for premium products; flag when lower-tier BUY rate
+    # exceeds upper-tier rate by more than ``flag_threshold`` (LLM affluence bias
+    # would more typically *overstate* lower-tier purchase intent).
+    flagged = (lower_rate - upper_rate) > flag_threshold
+    return {
+        "upper_tier_buy_rate": round(upper_rate, 4),
+        "lower_tier_buy_rate": round(lower_rate, 4),
+        "delta": round(lower_rate - upper_rate, 4),
+        "flagged": flagged,
+        "note": "lower-tier BUY rate exceeds upper-tier BUY rate beyond threshold"
+                if flagged else "ok",
+    }
 
-    rate = len(ever_buy) / len(low_tier_ids)
-    deviation = abs(rate - expected_low_tier_buy_rate)
-    flagged = deviation > tolerance
-    return BiasFlag(
-        "affluence_bias", rate, f"|sim - {expected_low_tier_buy_rate:.0%}| < {tolerance:.0%}",
-        flagged,
-        f"low-tier BUY rate {rate:.1%}; expected ~{expected_low_tier_buy_rate:.1%}",
-    )
-
-
-# ── Positivity bias ──────────────────────────────────────────────────────────
 
 def positivity_bias(
     decisions: Sequence[AgentDecision],
-    expected_reject_rate: float = 0.15,
-    tolerance: float = 0.10,
-) -> BiasFlag:
-    """
-    LLMs tend to over-generate BUY. Flag if REJECT rate is < (expected - tolerance).
-    Uses the latest decision per agent.
-    """
-    latest: dict[str, str] = {}
-    for d in sorted(decisions, key=lambda x: x.timestep):
-        latest[d.agent_id] = d.decision
-
-    if not latest:
-        return BiasFlag("positivity_bias", 0.0, "n/a", False, "no decisions recorded")
-
-    counts = Counter(latest.values())
-    n = len(latest)
-    reject_rate = counts.get("REJECT", 0) / n
-    flagged = reject_rate < (expected_reject_rate - tolerance)
-    return BiasFlag(
-        "positivity_bias", reject_rate, f">= {expected_reject_rate - tolerance:.0%}",
-        flagged,
-        f"REJECT rate {reject_rate:.1%} vs benchmark {expected_reject_rate:.1%}",
+    category_benchmark_reject_rate: float | None = None,
+    flag_threshold: float = 0.15,
+) -> dict:
+    """Compare simulated REJECT rate against a known category benchmark."""
+    if not decisions:
+        return {"sim_reject_rate": 0.0, "flagged": False, "note": "no decisions"}
+    total = len(decisions)
+    sim_reject = sum(1 for d in decisions if d.decision == "REJECT") / total
+    out: dict = {"sim_reject_rate": round(sim_reject, 4)}
+    if category_benchmark_reject_rate is None:
+        out["flagged"] = False
+        out["note"] = "no benchmark supplied"
+        return out
+    delta = category_benchmark_reject_rate - sim_reject
+    out["benchmark_reject_rate"] = category_benchmark_reject_rate
+    out["delta"] = round(delta, 4)
+    out["flagged"] = delta > flag_threshold
+    out["note"] = (
+        "simulated REJECT rate is substantially lower than the category benchmark "
+        "(positivity bias suspected)"
+        if out["flagged"]
+        else "ok"
     )
+    return out
 
 
-# ── Homogeneity bias ─────────────────────────────────────────────────────────
-
-def _gini(values: Sequence[float]) -> float:
-    """Standard Gini coefficient. 0 = uniform, 1 = totally concentrated."""
-    arr = sorted(values)
-    n = len(arr)
-    if n == 0 or sum(arr) == 0:
-        return 0.0
-    cum = 0.0
-    for i, v in enumerate(arr, start=1):
-        cum += i * v
-    total = sum(arr)
-    return (2 * cum) / (n * total) - (n + 1) / n
-
-
-def homogeneity_bias(
+def homogeneity_gini(
     decisions: Sequence[AgentDecision],
     personas: Sequence[AgentPersona],
-    min_gini: float = 0.30,
-) -> BiasFlag:
-    """
-    Within a single ISEC tier, agents should produce diverse decision distributions.
-    A Gini < 0.30 on the latest decision histogram per tier signals lock-step behavior.
-    Reports the worst (lowest) Gini across tiers with >=10 agents.
-    """
-    persona_by_id = {p.agent_id: p for p in personas}
-    latest: dict[str, str] = {}
-    for d in sorted(decisions, key=lambda x: x.timestep):
-        latest[d.agent_id] = d.decision
+    flag_threshold: float = 0.30,
+) -> dict:
+    """Within-cohort decision diversity (Gini). Higher = more diverse.
 
+    Returns the population-weighted mean Gini across ISEC cohorts. Flag if
+    the *mean* Gini falls below ``flag_threshold`` (cohorts behave too uniformly).
+    """
     by_tier: dict[str, list[str]] = defaultdict(list)
-    for aid, state in latest.items():
-        p = persona_by_id.get(aid)
-        if not p:
-            continue
-        by_tier[p.demographic.isec_tier].append(state)
+    persona_tier = {p.agent_id: p.demographic.isec_tier for p in personas}
+    for d in decisions:
+        tier = persona_tier.get(d.agent_id)
+        if tier:
+            by_tier[tier].append(d.decision)
 
-    worst_tier: str | None = None
-    worst_gini: float = 1.0
+    cohort_ginis: list[tuple[str, float, int]] = []
     for tier, states in by_tier.items():
-        if len(states) < 10:
+        if len(states) < 2:
             continue
-        hist = Counter(states)
-        # Gini over the count distribution; uniform across 9 states would be near 0
-        gini = _gini(list(hist.values()))
-        if gini < worst_gini:
-            worst_gini = gini
-            worst_tier = tier
+        counter = Counter(states)
+        # 1 - sum(p_i^2): Gini-like impurity index in [0, 1)
+        ps = [c / len(states) for c in counter.values()]
+        impurity = 1.0 - sum(p * p for p in ps)
+        cohort_ginis.append((tier, impurity, len(states)))
 
-    if worst_tier is None:
-        return BiasFlag("homogeneity_bias", 0.0, f">= {min_gini}", False,
-                        "not enough agents per tier (need >=10)")
+    if not cohort_ginis:
+        return {"mean_gini": float("nan"), "per_tier": {}, "flagged": False}
 
-    flagged = worst_gini < min_gini
-    return BiasFlag(
-        "homogeneity_bias", worst_gini, f">= {min_gini}", flagged,
-        f"worst tier: {worst_tier} (gini={worst_gini:.2f})",
-    )
+    weight_sum = sum(n for _, _, n in cohort_ginis)
+    mean_gini = sum(g * n for _, g, n in cohort_ginis) / weight_sum
+    return {
+        "mean_gini": round(mean_gini, 4),
+        "per_tier": {t: round(g, 4) for t, g, _ in cohort_ginis},
+        "flagged": mean_gini < flag_threshold,
+        "note": "ISEC cohorts behave too uniformly (homogeneity bias)"
+                if mean_gini < flag_threshold
+                else "ok",
+    }
 
 
-# ── Language bias (audit-only) ───────────────────────────────────────────────
-
-def language_audit_sample(
+def language_bias_sample(
     decisions: Sequence[AgentDecision],
     personas: Sequence[AgentPersona],
-    sample_size: int = 50,
-) -> list[dict]:
+    k: int = 50,
+    out_path: Path | None = None,
+) -> dict:
+    """Sample Indic-language reasoning outputs for human review.
+
+    Writes a JSONL file (defaults to ``outputs/language_audit_<n>.jsonl``)
+    containing the sampled (agent, language, reasoning) tuples. Returns
+    a summary dict with the sample size and language counts.
     """
-    Surface a sample of non-English internal_reasoning outputs for human review.
-    Returns a list of {agent_id, language, reasoning} dicts.
-    Human raters score these on a 1-5 cultural authenticity scale.
-    """
-    persona_by_id = {p.agent_id: p for p in personas}
-    candidates = [
-        {
-            "agent_id": d.agent_id,
-            "language": persona_by_id[d.agent_id].demographic.primary_language,
-            "isec_tier": persona_by_id[d.agent_id].demographic.isec_tier,
-            "reasoning": d.internal_reasoning,
-        }
-        for d in decisions
-        if d.agent_id in persona_by_id
-        and persona_by_id[d.agent_id].demographic.primary_language.lower() != "english"
+    persona_lang = {p.agent_id: p.demographic.primary_language for p in personas}
+    indic = [
+        d for d in decisions
+        if persona_lang.get(d.agent_id, "english").lower() != "english"
     ]
-    return candidates[:sample_size]
+    sample = indic[:k]
+    out_path = out_path or Path("outputs") / f"language_audit_{len(sample)}.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as f:
+        for d in sample:
+            f.write(json.dumps({
+                "agent_id": d.agent_id,
+                "language": persona_lang.get(d.agent_id, "unknown"),
+                "decision": d.decision,
+                "reasoning": d.internal_reasoning,
+            }) + "\n")
+    lang_counts = Counter(persona_lang.get(d.agent_id, "unknown") for d in sample)
+    return {
+        "sample_size": len(sample),
+        "languages": dict(lang_counts),
+        "sample_path": str(out_path),
+        "note": "Submit this file for human authenticity review on a 1-5 scale.",
+    }
 
-
-# ── Aggregate ────────────────────────────────────────────────────────────────
 
 def run_bias_suite(
     decisions: Sequence[AgentDecision],
     personas: Sequence[AgentPersona],
-) -> list[BiasFlag]:
-    return [
-        affluence_bias(decisions, personas),
-        positivity_bias(decisions),
-        homogeneity_bias(decisions, personas),
-    ]
+    category_benchmark_reject_rate: float | None = None,
+) -> dict:
+    return {
+        "affluence": affluence_bias(decisions, personas),
+        "positivity": positivity_bias(decisions, category_benchmark_reject_rate),
+        "homogeneity": homogeneity_gini(decisions, personas),
+        # language_bias_sample writes a file — only invoke explicitly via CLI.
+    }

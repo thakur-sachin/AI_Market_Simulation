@@ -14,7 +14,7 @@ import structlog
 from jinja2 import Environment, FileSystemLoader
 
 from launchlens.config import get_settings
-from launchlens.llm import LLMRoute, complete, route_for_agent
+from launchlens.llm import LLMRoute, complete, effective_max_concurrent, route_for_agent
 from launchlens.phase1.schemas import (
     AgentPersona,
     DemographicVector,
@@ -264,8 +264,9 @@ async def _generate_bio(vec: DemographicVector, semaphore: asyncio.Semaphore) ->
 async def generate_personas(
     vectors: list[DemographicVector],
     max_concurrent: int | None = None,
+    engine_override: str | None = None,
 ) -> list[AgentPersona]:
-    max_concurrent = max_concurrent or _cfg.llm_max_concurrent
+    max_concurrent = max_concurrent or effective_max_concurrent(engine_override=engine_override)
     sem = asyncio.Semaphore(max_concurrent)
     tasks = [_generate_bio(v, sem) for v in vectors]
     bios = await asyncio.gather(*tasks)
@@ -283,6 +284,24 @@ async def generate_personas(
 
 
 # ── Diversity validation ─────────────────────────────────────────────────────
+
+class DiversityCheckFailure(RuntimeError):
+    """Raised when a generated population deviates beyond ``threshold`` on any marginal."""
+
+
+def enforce_population_diversity(
+    personas: Sequence[AgentPersona],
+    profile: DistrictProfile,
+    threshold: float = 0.05,
+) -> None:
+    """Hard gate: raise ``DiversityCheckFailure`` if any marginal deviates beyond ``threshold``."""
+    flags = validate_population_diversity(personas, profile, threshold=threshold)
+    if flags:
+        joined = "; ".join(f"{dim}: {issues}" for dim, issues in flags.items())
+        raise DiversityCheckFailure(
+            f"Population marginals deviate beyond {threshold:.0%}: {joined}"
+        )
+
 
 def validate_population_diversity(
     personas: Sequence[AgentPersona],

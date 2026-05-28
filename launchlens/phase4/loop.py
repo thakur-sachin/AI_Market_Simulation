@@ -11,13 +11,19 @@ from dataclasses import dataclass, field
 import structlog
 
 from launchlens.config import get_settings
-from launchlens.llm import LLMRoute, complete, effective_max_concurrent
+from launchlens.llm import (
+    LLMRoute,
+    complete,
+    effective_max_concurrent,
+    get_usage_tracker,
+    select_provider,
+)
 from launchlens.phase2.schemas import SimGraph
-from launchlens.phase3.schemas import AgentDecision, AgentMemory, ProductStimulus
-from launchlens.phase3.memory import MemoryStore
 from launchlens.phase3.feed import build_feed
-from launchlens.phase4.prompts import build_decision_prompt
+from launchlens.phase3.memory import MemoryStore
+from launchlens.phase3.schemas import AgentDecision, AgentMemory, ProductStimulus
 from launchlens.phase4.decisions import parse_decision
+from launchlens.phase4.prompts import build_decision_prompt
 from launchlens.phase4.propagation import propagate_decisions
 
 log = structlog.get_logger()
@@ -44,6 +50,7 @@ class SimulationLog:
     product_id: str
     n_agents: int
     timesteps: list[TimestepLog] = field(default_factory=list)
+    engine: str = "unknown"
 
     def adoption_curve(self) -> list[float]:
         """Cumulative BUY rate per timestep."""
@@ -58,6 +65,14 @@ class SimulationLog:
 
     def all_decisions(self) -> list[AgentDecision]:
         return [d for t in self.timesteps for d in t.decisions]
+
+    @property
+    def total_parse_failures(self) -> int:
+        return sum(t.parse_failures for t in self.timesteps)
+
+    @property
+    def total_llm_errors(self) -> int:
+        return sum(t.llm_errors for t in self.timesteps)
 
 
 # ── Single-agent decision ─────────────────────────────────────────────────────
@@ -77,6 +92,8 @@ async def _agent_step(
     semaphore: asyncio.Semaphore,
     rng: random.Random,
     llm_route: LLMRoute,
+    engine_override: str | None,
+    model_override: str | None,
 ) -> _StepResult:
     memory = all_memories.get(agent_id)
     if memory is None:
@@ -95,6 +112,9 @@ async def _agent_step(
                 user=user,
                 temperature=0.85,
                 max_tokens=400,
+                json_mode=True,
+                engine_override=engine_override,
+                model_override=model_override,
             )
         except Exception as e:
             log.warning("llm_call_failed", agent_id=agent_id, error=str(e))
@@ -109,6 +129,13 @@ async def _agent_step(
 # ── Memory update after decision ──────────────────────────────────────────────
 
 def _apply_decision(decision: AgentDecision, memory: AgentMemory) -> None:
+    """Persist this agent's decision.
+
+    Intentionally does NOT clear ``memory.peer_signals``. Signals carry over to
+    future timesteps with 30% decay per timestep (handled by ``propagate_decisions``),
+    enabling multi-hop cascades. Same-source signals are replaced (not stacked)
+    at propagation time.
+    """
     memory.current_decision[decision.product_id] = decision.decision
     memory.product_opinion[decision.product_id] = decision.internal_reasoning
     memory.add_event(
@@ -133,19 +160,42 @@ async def run_simulation(
     batch_size: int | None = None,
     max_concurrent: int | None = None,
     seed: int | None = None,
+    engine_override: str | None = None,
+    model_override: str | None = None,
 ) -> SimulationLog:
+    """Run the full interaction loop. Engine + model overrides propagate to every call."""
     batch_size = batch_size or _cfg.llm_batch_size
-    max_concurrent = max_concurrent or effective_max_concurrent()
+
+    probe_provider = select_provider(
+        LLMRoute.SARVAM,
+        engine_override=engine_override,
+        model_override=model_override,
+    )
+    if max_concurrent is None:
+        max_concurrent = effective_max_concurrent(
+            engine_override=engine_override, model_override=model_override,
+        )
+
     rng = random.Random(seed)
     sem = asyncio.Semaphore(max_concurrent)
 
     agent_ids = graph.node_ids
-    sim_log = SimulationLog(product_id=product.product_id, n_agents=len(agent_ids))
+    sim_log = SimulationLog(
+        product_id=product.product_id,
+        n_agents=len(agent_ids),
+        engine=probe_provider.name,
+    )
+
+    log.info(
+        "simulation_start",
+        product=product.product_id, agents=len(agent_ids),
+        timesteps=n_timesteps, engine=probe_provider.name,
+        model=probe_provider.model, batch_size=batch_size,
+        max_concurrent=max_concurrent,
+    )
 
     for t in range(n_timesteps):
-        log.info("timestep_start", t=t, agents=len(agent_ids))
         ts_log = TimestepLog(timestep=t)
-
         all_memories = await memory_store.get_many(agent_ids)
 
         for batch_start in range(0, len(agent_ids), batch_size):
@@ -154,6 +204,7 @@ async def run_simulation(
                 _agent_step(
                     aid, product, graph, all_memories, t, sem, rng,
                     agent_llm_routes.get(aid, LLMRoute.SARVAM),
+                    engine_override, model_override,
                 )
                 for aid in batch
             ]
@@ -173,10 +224,10 @@ async def run_simulation(
                 _apply_decision(res.decision, mem)
                 await memory_store.update(mem)
 
-        # Propagate social signals: decays carried-over signals AND writes fresh ones
+        # Propagate social signals: decays carried-over signals THEN writes fresh ones,
+        # replacing any same-source entries to avoid stacking.
         propagate_decisions(ts_log.decisions, graph, all_memories, t)
 
-        # Persist updated memories after propagation
         for mem in all_memories.values():
             await memory_store.update(mem)
 
@@ -189,4 +240,10 @@ async def run_simulation(
             missing_memory=ts_log.missing_memory,
         )
 
+    log.info(
+        "simulation_done",
+        parse_failures=sim_log.total_parse_failures,
+        llm_errors=sim_log.total_llm_errors,
+        usage=get_usage_tracker().summary(),
+    )
     return sim_log

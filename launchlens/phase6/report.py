@@ -16,17 +16,21 @@ from launchlens.phase1.schemas import AgentPersona
 from launchlens.phase3.schemas import ProductStimulus
 from launchlens.phase4.loop import SimulationLog
 from launchlens.phase5.calibration import (
-    CalibrationResult,
-    sim_top_segments,
-    sim_district_rates,
-    _segment_label,
+    CalibrationReport,
+    _isec_band,
+    build_sim_summary,
 )
 from launchlens.phase6.analytics import (
-    objection_map,
     feature_importance,
     message_resonance,
+    objection_map,
     segment_breakdown,
 )
+
+
+def _segment_label(p: AgentPersona) -> str:
+    geo = "urban" if p.demographic.urban else "rural"
+    return f"{geo}_{_isec_band(p.demographic.isec_tier)}"
 
 
 def _bar(value: float, width: int = 20) -> str:
@@ -34,33 +38,39 @@ def _bar(value: float, width: int = 20) -> str:
     return "█" * filled + "·" * (width - filled)
 
 
+def _currency_symbol(product: ProductStimulus) -> str:
+    return "₹" if product.currency == "INR" else f"{product.currency} "
+
+
 def generate_report(
     product: ProductStimulus,
     sim_log: SimulationLog,
     personas: Sequence[AgentPersona],
-    calibration: CalibrationResult | None = None,
+    calibration: CalibrationReport | None = None,
 ) -> str:
     """Return a markdown report string."""
     decisions = sim_log.all_decisions()
     curve = sim_log.adoption_curve()
     final_rate = curve[-1] if curve else 0.0
 
-    # Latest decision per agent
     latest: dict[str, str] = {}
     for d in sorted(decisions, key=lambda x: x.timestep):
         latest[d.agent_id] = d.decision
     final_counts = Counter(latest.values())
 
     persona_segs = {p.agent_id: _segment_label(p) for p in personas}
+    summary = build_sim_summary(sim_log, personas)
+    sym = _currency_symbol(product)
 
     lines: list[str] = []
     lines.append(f"# LaunchLens Simulation Report — {product.product_name}")
     lines.append("")
     lines.append(f"- **Product ID:** `{product.product_id}`")
     lines.append(f"- **Category:** {product.category}")
-    lines.append(f"- **Launch price:** {product._symbol()}{product.price_launch}  (MRP {product._symbol()}{product.price_mrp})")
+    lines.append(f"- **Launch price:** {sym}{product.price_launch}  (MRP {sym}{product.price_mrp})")
     lines.append(f"- **Agents simulated:** {sim_log.n_agents}")
     lines.append(f"- **Timesteps:** {len(sim_log.timesteps)}")
+    lines.append(f"- **Engine:** {sim_log.engine}")
     lines.append("")
 
     # ── 1. Market Fit ────────────────────────────────────────────────────────
@@ -83,8 +93,8 @@ def generate_report(
     lines.append("```")
     lines.append("")
 
-    # ── 3. City Intelligence (district rates) ────────────────────────────────
-    district_rates = sim_district_rates(sim_log, personas)
+    # ── 3. District rates ────────────────────────────────────────────────────
+    district_rates = summary["district_rates"]
     if len(district_rates) > 1:
         lines.append("## 3 · District Adoption Rates")
         lines.append("")
@@ -104,8 +114,10 @@ def generate_report(
         for s in seg_data:
             lines.append(f"| {s['segment']} | {s['size']} | {s['buy_rate']:.1%} | {s['reject_rate']:.1%} |")
         lines.append("")
-        lines.append(f"**Top 3 segments (by BUY count):** {', '.join(sim_top_segments(sim_log, personas))}")
-        lines.append("")
+        top3 = summary["top_segments"]
+        if top3:
+            lines.append(f"**Top segments (by BUY count):** {', '.join(top3)}")
+            lines.append("")
 
     # ── 5. Message Resonance ─────────────────────────────────────────────────
     resonance = message_resonance(decisions, product.marketing_copy)
@@ -128,7 +140,10 @@ def generate_report(
         lines.append("| Feature | BUY mentions | REJECT mentions | Score |")
         lines.append("|---|---:|---:|---:|")
         for f in feat_data:
-            lines.append(f"| {f['feature']} | {f['mentions_in_buy']} | {f['mentions_in_reject']} | {f['importance_score']:+.2f} |")
+            lines.append(
+                f"| {f['feature']} | {f['mentions_in_buy']} | "
+                f"{f['mentions_in_reject']} | {f['importance_score']:+.2f} |"
+            )
         lines.append("")
 
     # ── 7. Objection Map ─────────────────────────────────────────────────────
@@ -148,10 +163,23 @@ def generate_report(
     if calibration is not None:
         lines.append("## 8 · Validation vs. Real Launch")
         lines.append("")
-        lines.append("```")
-        lines.append(calibration.summary())
-        lines.append("```")
+        lines.append(f"**Calibration case:** `{calibration.product_id}` "
+                     f"(engine: {calibration.engine})")
         lines.append("")
+        lines.append("| Metric | Value | Passed |")
+        lines.append("|---|---:|:---:|")
+        for metric, value in calibration.metrics.items():
+            passed = calibration.gates.get(metric, False)
+            mark = "✓" if passed else "✗"
+            val = f"{value:.4f}" if isinstance(value, float) else str(value)
+            lines.append(f"| {metric} | {val} | {mark} |")
+        lines.append("")
+        if calibration.tuning_signals:
+            lines.append("**Tuning recommendations:**")
+            lines.append("")
+            for area, message in calibration.tuning_signals.items():
+                lines.append(f"- **{area}**: {message}")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -161,7 +189,7 @@ def write_report(
     product: ProductStimulus,
     sim_log: SimulationLog,
     personas: Sequence[AgentPersona],
-    calibration: CalibrationResult | None = None,
+    calibration: CalibrationReport | None = None,
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     md = generate_report(product, sim_log, personas, calibration)
