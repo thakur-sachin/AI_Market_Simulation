@@ -49,14 +49,14 @@ def build_feed(
         if state is None:
             continue
         opinion_text = nm.latest_opinion(product.product_id)
+        nm_node = graph.node_meta.get(nm.agent_id)
         signal = PeerSignal(
             from_agent_id=nm.agent_id,
             decision=state,
             reason=opinion_text[:200],
             salience=1.0,
             timestep=timestep,
-            archetype_hint=graph.node_meta.get(nm.agent_id, None) and
-                           graph.node_meta[nm.agent_id].archetype or "standard",
+            archetype_hint=nm_node.archetype if nm_node else "standard",
         )
         if state == "BUY":
             purchases.append(signal)

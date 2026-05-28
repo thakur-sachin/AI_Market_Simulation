@@ -31,12 +31,16 @@ class ProductStimulus(BaseModel):
     competitor_context: str
     target_segment: str
 
+    def _symbol(self) -> str:
+        return "₹" if self.currency == "INR" else f"{self.currency} "
+
     def render_for_agent(self) -> str:
         feats = "\n".join(f"  - {f}" for f in self.key_features)
+        sym = self._symbol()
         return (
             f"Product: {self.product_name}\n"
             f"Category: {self.category}\n"
-            f"Price: ₹{self.price_launch} (MRP ₹{self.price_mrp})\n"
+            f"Price: {sym}{self.price_launch} (MRP {sym}{self.price_mrp})\n"
             f"Key features:\n{feats}\n"
             f"Available at: {', '.join(self.distribution_channels)}\n"
             f"Ad copy: \"{self.marketing_copy}\"\n"
@@ -59,7 +63,6 @@ class AgentMemory(BaseModel):
     agent_id: str
     biography: str                              # immutable
     episodic_buffer: list[str] = Field(default_factory=list)   # last 10 events
-    product_awareness: dict[str, float] = Field(default_factory=dict)   # product_id→0-1
     product_opinion: dict[str, str] = Field(default_factory=dict)       # product_id→text
     purchase_history: list[dict] = Field(default_factory=list)
     current_decision: dict[str, DecisionState] = Field(default_factory=dict)  # product_id→state
@@ -73,7 +76,9 @@ class AgentMemory(BaseModel):
     def latest_opinion(self, product_id: str) -> str:
         return self.product_opinion.get(product_id, "You have not formed an opinion yet.")
 
-    def pending_peer_signals(self, product_id: str) -> list[PeerSignal]:
+    def pending_peer_signals(self, product_id: str | None = None) -> list[PeerSignal]:
+        # product_id is reserved for future multi-product support;
+        # signals currently belong to a single-product simulation.
         return [s for s in self.peer_signals if s.salience > 0.05]
 
 

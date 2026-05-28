@@ -34,6 +34,7 @@ from launchlens.phase3.schemas import (
 )
 from launchlens.phase3.memory import MemoryStore
 from launchlens.phase3.feed import build_feed
+from launchlens.phase4.loop import SimulationLog, TimestepLog
 from launchlens.phase4.propagation import propagate_decisions
 
 
@@ -254,9 +255,7 @@ async def run_lite(
     n_timesteps: int = 8,
     seed: int = 42,
     verbose: bool = False,
-) -> SimulationLog:  # type: ignore[name-defined]
-    from launchlens.phase4.loop import SimulationLog, TimestepLog
-
+) -> SimulationLog:
     rng = random.Random(seed)
     print(f"\n{'═'*60}")
     print(f"  LaunchLens Lite Simulation")
@@ -340,7 +339,6 @@ async def run_lite(
             if dec.decision == "BUY":
                 cumulative_buyers.add(agent_id)
                 mem.purchase_history.append({"timestep": t, "product_id": product.product_id})
-            mem.peer_signals = []
             await store.update(mem)
 
         propagate_decisions(ts_log.decisions, graph, all_memories, t)

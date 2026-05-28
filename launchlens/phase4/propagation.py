@@ -1,7 +1,17 @@
 """
 Network propagation engine — Phase 4.
 Social actions (SHARE_*/COMPLAIN/BUY) fan out to direct connections.
-Salience decays 30% per hop; signals below 0.05 are dropped.
+Salience decays 30% per timestep; signals below 0.05 are dropped.
+
+Order of operations per timestep, after all agent decisions for t are recorded:
+  1. Decay carried-over signals from prior timesteps (and drop below floor).
+  2. For each propagating decision at t, write a fresh PeerSignal at base
+     salience to each direct neighbor; if a signal from the same source
+     already exists, replace it (keep the freshest).
+
+Net effect: a signal emitted at t is at base_salience when neighbor reads at t+1
+(its first opportunity), 0.7× at t+2, 0.49× at t+3, ... falls below floor
+around t+8. This matches the "30% decay per hop" spec.
 """
 from __future__ import annotations
 
@@ -18,9 +28,28 @@ from launchlens.phase3.schemas import (
 
 log = structlog.get_logger()
 
-_SALIENCE_DECAY = 0.70        # each hop multiplies salience by this
+_SALIENCE_DECAY = 0.70        # each timestep multiplies salience by this
 _SALIENCE_FLOOR = 0.05        # signals below this are dropped
 _COMPLAIN_BOOST = 1.5         # complaints carry extra salience weight
+
+
+def _decay_existing(memories: dict[str, AgentMemory]) -> None:
+    """Decay every signal already in memory and drop those below the floor."""
+    for mem in memories.values():
+        decayed: list[PeerSignal] = []
+        for s in mem.peer_signals:
+            new_sal = round(s.salience * _SALIENCE_DECAY, 3)
+            if new_sal < _SALIENCE_FLOOR:
+                continue
+            decayed.append(PeerSignal(
+                from_agent_id=s.from_agent_id,
+                decision=s.decision,
+                reason=s.reason,
+                salience=new_sal,
+                timestep=s.timestep,
+                archetype_hint=s.archetype_hint,
+            ))
+        mem.peer_signals = decayed
 
 
 def propagate_decisions(
@@ -30,9 +59,13 @@ def propagate_decisions(
     timestep: int,
 ) -> int:
     """
-    For each propagating decision, write PeerSignals into each direct neighbor's
-    memory.peer_signals. Returns total signal count written.
+    Fan out propagating decisions to direct neighbors and decay older signals.
+    Returns total fresh signal count written this timestep.
     """
+    # 1. Decay everything that was already in memory before this timestep's events
+    _decay_existing(all_memories)
+
+    # 2. Write fresh signals from this timestep's propagating decisions
     total = 0
     for dec in decisions:
         if dec.decision not in PROPAGATING_STATES:
@@ -41,39 +74,25 @@ def propagate_decisions(
         node_meta = graph.node_meta.get(dec.agent_id)
         action_type = "trust" if dec.decision == "BUY" else "awareness"
         mult = get_propagation_multiplier(node_meta, action_type) if node_meta else 1.0
+        base_salience = round(mult * (_COMPLAIN_BOOST if dec.decision == "COMPLAIN" else 1.0), 3)
 
-        base_salience = mult * (_COMPLAIN_BOOST if dec.decision == "COMPLAIN" else 1.0)
-
-        neighbors = graph.neighbors(dec.agent_id)
-        for neighbor_id in neighbors:
+        for neighbor_id in graph.neighbors(dec.agent_id):
             neighbor_mem = all_memories.get(neighbor_id)
             if neighbor_mem is None:
                 continue
-            signal = PeerSignal(
+            # Replace any existing signal from the same source to avoid stacking
+            neighbor_mem.peer_signals = [
+                s for s in neighbor_mem.peer_signals if s.from_agent_id != dec.agent_id
+            ]
+            neighbor_mem.peer_signals.append(PeerSignal(
                 from_agent_id=dec.agent_id,
                 decision=dec.decision,
                 reason=dec.primary_reason,
-                salience=round(base_salience, 3),
+                salience=base_salience,
                 timestep=timestep,
                 archetype_hint=node_meta.archetype if node_meta else "standard",
-            )
-            neighbor_mem.peer_signals.append(signal)
+            ))
             total += 1
-
-    # Decay existing signals that were carried over from previous timesteps
-    for mem in all_memories.values():
-        mem.peer_signals = [
-            PeerSignal(
-                from_agent_id=s.from_agent_id,
-                decision=s.decision,
-                reason=s.reason,
-                salience=round(s.salience * _SALIENCE_DECAY, 3),
-                timestep=s.timestep,
-                archetype_hint=s.archetype_hint,
-            )
-            for s in mem.peer_signals
-            if s.salience * _SALIENCE_DECAY >= _SALIENCE_FLOOR
-        ]
 
     log.info("propagation_done", timestep=timestep, signals_written=total)
     return total

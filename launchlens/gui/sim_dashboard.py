@@ -57,11 +57,26 @@ ARCHETYPE_ORDER = ["innovator","early_adopter","early_majority","late_majority",
 
 
 # ── Async helper ──────────────────────────────────────────────────────────────
+# Reuse a single thread + a single event loop across calls. Streamlit invokes
+# this from its own event loop, so we route async work to a sidecar loop.
+
+_loop: asyncio.AbstractEventLoop | None = None
+_loop_thread: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    global _loop, _loop_thread
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        _loop_thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _loop_thread.submit(_loop.run_forever)
+    return _loop
+
 
 def _run_async(coro):
-    """Run coroutine in a fresh thread to avoid event-loop conflicts."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+    """Run coroutine on a persistent sidecar event loop."""
+    loop = _get_loop()
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 # ── Simulation runner ─────────────────────────────────────────────────────────
@@ -167,7 +182,6 @@ def run_simulation(
             if dec.decision == "BUY":
                 cumulative_buyers.add(agent_id)
                 mem.purchase_history.append({"timestep": t, "product_id": product.product_id})
-            mem.peer_signals = []
             _run_async(store.update(mem))
 
             nm = node_meta.get(agent_id)

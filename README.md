@@ -97,7 +97,51 @@ Adjust agents (50–500), timesteps, seed, and product parameters from the sideb
 - **Network** — live social graph with timestep scrubber; nodes colored by decision state, influencer nodes enlarged
 - **Segments** — ISEC × state heatmap, adoption rate by tech archetype, propagation signal chart
 
-### Option 3 — Full pipeline with real LLMs
+### Option 3 — Local LLM validation (free, no API keys)
+
+For feasibility testing without API costs, run any small open-weight model locally via Ollama. The router transparently sends every Claude/Sarvam call to the local endpoint.
+
+```bash
+# 1. Install Ollama (Linux/macOS/Windows — https://ollama.com)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Pull a tiny model (pick one based on your hardware)
+ollama pull qwen2.5:0.5b      # ~400 MB, fastest, CPU-friendly
+ollama pull llama3.2:1b       # ~1.3 GB, better English coherence
+ollama pull gemma2:2b         # ~1.6 GB, strongest small option
+# (Optional, larger if you have ≥6GB RAM/VRAM:)
+# ollama pull qwen2.5:3b       # ~2 GB, much better instruction following
+
+# 3. Verify it's serving (Ollama auto-starts a server on :11434)
+curl http://localhost:11434/api/tags
+
+# 4. Configure LaunchLens
+cp .env.example .env
+# In .env, set:
+#   LOCAL_LLM_ENABLED=true
+#   LOCAL_LLM_MODEL=qwen2.5:0.5b
+
+# 5. Generate a few personas (LLM-driven biographies)
+python -m launchlens.cli generate-personas --district Indore --n 5 --seed 42 --local --skip-qa
+
+# 6. Run the full LLM-driven simulation loop
+python -m launchlens.cli run-sim --agents 20 --timesteps 5 --seed 42 --local
+
+# 7. Run with calibration against a built-in fixture
+python -m launchlens.cli run-sim --agents 30 --timesteps 8 --seed 42 --local \
+  --fixture launchlens/phase5/fixtures/paper_boat_aam_panna.json
+```
+
+Outputs land in `data/processed/sim_logs/`:
+- `prod_001_sim.json` — full SimulationLog with per-timestep decisions
+- `prod_001_report.md` — 8-deliverable markdown report (adoption curve, segments, objection map, message resonance, validation gates)
+
+**Hardware notes:**
+- `qwen2.5:0.5b` runs comfortably on CPU; 20 agents × 5 timesteps ≈ 5–15 minutes
+- On Apple Silicon, GPU acceleration is automatic via Metal
+- Decision parsing tolerates the messier output of tiny models (lenient + fuzzy fallback)
+
+### Option 4 — Full pipeline with hosted LLMs (Claude + Sarvam)
 
 ```bash
 cp .env.example .env
@@ -109,8 +153,8 @@ python -m launchlens.cli ingest-census
 # Generate 1,000 personas for Indore with QA
 python -m launchlens.cli generate-personas --district Indore --n 1000 --seed 42
 
-# Run full simulation (Phase 4 loop.py — requires Redis + PostgreSQL)
-# See NEXT_STEPS.md for wiring instructions
+# Run full simulation (Phase 4 loop.py — requires Redis + PostgreSQL for scale)
+python -m launchlens.cli run-sim --district Indore --agents 1000 --timesteps 12
 ```
 
 ---
@@ -311,9 +355,9 @@ pytest -v -k "graph"      # by keyword
 |---|---|---|
 | `tests/test_phase1/test_schemas.py` | 9 tests — schema validation, ISEC disaggregation, stratified sampling, diversity, income bounds | ✅ All pass |
 | `tests/test_phase2/test_graph.py` | 11 tests — node count, connectivity, degree, small-world σ, homophily, influencer proportions, serialization | ✅ All pass |
-| `tests/test_phase3/` | Memory CRUD, feed construction, peer signal dedup | 🔲 Planned |
-| `tests/test_phase4/` | Decision parser edge cases, propagation counts, adoption curve shape | 🔲 Planned |
-| `tests/test_phase5/` | Metric calculation against known calibration fixtures | 🔲 Planned |
+| `tests/test_phase3/` | 9 tests — MemoryStore CRUD, episodic buffer, feed dedup, archetype_hint resolution | ✅ All pass |
+| `tests/test_phase4/` | 13 tests — decision parser (strict/lenient/fuzzy), propagation decay, signal replacement, archetype multipliers | ✅ All pass |
+| `tests/test_phase5/` | 12 tests — adoption deviation, DTW shape match, segment accuracy, Spearman, reject alignment | ✅ All pass |
 
 ---
 
@@ -326,8 +370,8 @@ pytest -v -k "graph"      # by keyword
 | **3** | Simulation Environment — memory, feed, product stimulus | ✅ Complete |
 | **4** | Interaction Loop — LLM decisions, propagation, simulation log | ✅ Complete |
 | **4b** | `sim_lite` — zero-infra mock simulation + Streamlit dashboard | ✅ Complete |
-| **5** | Validation & Calibration — 5-metric loop against real launches | 🔲 Next |
-| **6** | Analytics & Output — 8 deliverables, FastAPI, React dashboard | 🔲 Planned |
+| **5** | Validation & Calibration — 5-metric loop + 3-check bias suite | ✅ Complete |
+| **6** | Analytics & Output — objection map, feature priority, message resonance, segment depth, markdown report | ✅ Complete (FastAPI/React deferred) |
 
 See [`NEXT_STEPS.md`](NEXT_STEPS.md) for the full implementation roadmap with prioritized actions, infra setup, and 18-week milestone gates.
 
