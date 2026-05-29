@@ -16,5 +16,22 @@
     "PLACEHOLDER — IDC India quarterly TWS tracker",
     "PLACEHOLDER — Flipkart product reviews aggregated 2022",
     "PLACEHOLDER — Counterpoint Research TWS market analysis 2022"
-  ]
+  ],
+  "product": {
+    "product_id": "boat_airdopes_141",
+    "product_name": "boAt Airdopes 141",
+    "category": "Consumer Electronics",
+    "price_mrp": 2999,
+    "price_launch": 1299,
+    "currency": "INR",
+    "key_features": [
+      "42 hours playback with charging case",
+      "ENx noise-cancellation tech for calls",
+      "IPX4 sweat & water resistance, gaming-grade low latency"
+    ],
+    "distribution_channels": ["Flipkart", "Amazon India", "boAt D2C"],
+    "marketing_copy": "Sound that beats. Hours that don't quit. India's #1 audio brand.",
+    "competitor_context": "Noise Buds VS104 (₹999-1499), Realme Buds T100 (₹1299), OnePlus Nord Buds (₹2299)",
+    "target_segment": "Young urban Indians, SEC A2-B1, age 18-30, music + gaming"
+  }
 }

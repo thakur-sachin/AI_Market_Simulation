@@ -13,11 +13,25 @@ def _feed() -> MarketplaceFeed:
     )
 
 
-def test_system_prompt_contains_anti_positivity_prior():
+def test_system_prompt_contains_price_skepticism_prior():
     mem = AgentMemory(agent_id="a", biography="bio")
     system, _ = build_decision_prompt(mem, _feed(), "Foo", 50, "p1")
-    assert "price-skeptical" in system.lower() or "price skeptical" in system.lower()
-    assert "not easily impressed" in system.lower()
+    s = system.lower()
+    # Prior is now advisory + archetype-aware, not "default to X" prescriptive
+    assert "skeptical" in s
+    assert "archetype" in s
+    # Explicitly instructs REJECT for clear mismatches (not just BUY/not-BUY)
+    assert "reject" in s
+
+
+def test_system_prompt_lists_enums_without_pipe_separator():
+    """Pipe-separated enums confuse small models — they echo `'a | b'` as a value."""
+    mem = AgentMemory(agent_id="a", biography="bio")
+    system, _ = build_decision_prompt(mem, _feed(), "Foo", 50, "p1")
+    # The enum lines must not list options separated by ``|``
+    for line in system.splitlines():
+        if "decision" in line.lower() and ("BUY" in line or "buy" in line):
+            assert " | " not in line, f"pipe-separated enum found: {line!r}"
 
 
 def test_system_prompt_requests_json_output():

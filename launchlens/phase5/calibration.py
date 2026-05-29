@@ -32,6 +32,10 @@ class CalibrationCase:
     real_district_rates: dict[str, float] = field(default_factory=dict)
     category_reject_benchmark: float | None = None
     source_citations: list[str] = field(default_factory=list)
+    # Optional ProductStimulus payload. When present, `cmd_run_sim --calibrate <id>`
+    # uses this to drive the simulation so the sim and the ground truth are about
+    # the same product. Without it, the CLI falls back to its hardcoded demo product.
+    product: dict | None = None
 
 
 @dataclass
@@ -219,16 +223,17 @@ def _isec_band(isec: str) -> str:
 def build_sim_summary(sim_log, personas) -> dict:
     """Project a SimulationLog + persona list into the dict run_calibration consumes.
 
-    Carries adoption curve, top ISEC bands among buyers, most-common rejection
-    reasons, and per-district adoption rates. Uses the band label format
-    matching ``CalibrationCase.real_top3_segments`` (e.g. ``"urban_A1-A3"``).
+    Carries adoption curve, top ISEC tiers among buyers, most-common rejection
+    reasons, and per-district adoption rates. ``top_segments`` uses raw ISEC
+    tier names (e.g. ``"A2"``, ``"B1"``) to match the format used in
+    ``CalibrationCase.real_top3_segments``.
     """
     from collections import Counter, defaultdict
 
     persona_by_id = {p.agent_id: p for p in personas}
     decisions = sim_log.all_decisions() if hasattr(sim_log, "all_decisions") else []
 
-    # Top segments: (urban/rural × ISEC band) ranked by BUY count
+    # Top segments: raw ISEC tier counts among unique buyers.
     seg_counts: Counter[str] = Counter()
     seen_buyer: set[str] = set()
     for d in decisions:
@@ -238,8 +243,7 @@ def build_sim_summary(sim_log, personas) -> dict:
         p = persona_by_id.get(d.agent_id)
         if p is None:
             continue
-        geo = "urban" if p.demographic.urban else "rural"
-        seg_counts[f"{geo}_{_isec_band(p.demographic.isec_tier)}"] += 1
+        seg_counts[p.demographic.isec_tier] += 1
     top_segments = [seg for seg, _ in seg_counts.most_common(3)]
 
     # Top rejection reasons

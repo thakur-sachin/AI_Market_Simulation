@@ -16,5 +16,22 @@
     "PLACEHOLDER — replace with AC Nielsen IRI panel data Q1-Q4 2018",
     "PLACEHOLDER — Hector Beverages annual report disclosures",
     "PLACEHOLDER — Mintel India 2018 packaged-beverage adoption survey"
-  ]
+  ],
+  "product": {
+    "product_id": "paper_boat_aam_panna",
+    "product_name": "Paper Boat Aam Panna",
+    "category": "Beverages",
+    "price_mrp": 35,
+    "price_launch": 30,
+    "currency": "INR",
+    "key_features": [
+      "Authentic raw mango taste, no artificial flavours",
+      "200 ml single-serve Tetra Pak",
+      "Made from a traditional Hector Beverages recipe"
+    ],
+    "distribution_channels": ["Modern Trade", "Kirana", "Amazon India"],
+    "marketing_copy": "Bring back the taste of childhood summers — authentic aam panna in a bottle.",
+    "competitor_context": "Real / Tropicana (₹20-40 fruit drinks), Tang aam panna sachet (₹10), homemade aam panna",
+    "target_segment": "Nostalgia-driven urban families, SEC A2-B1, age 28-45"
+  }
 }

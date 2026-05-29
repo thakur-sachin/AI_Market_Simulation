@@ -16,5 +16,22 @@
     "PLACEHOLDER — Statista skincare adoption 2021",
     "PLACEHOLDER — Honasa Consumer earnings disclosures",
     "PLACEHOLDER — Nykaa Q2/Q3 2021 D2C skincare trend report"
-  ]
+  ],
+  "product": {
+    "product_id": "mamaearth_vitc",
+    "product_name": "Mamaearth Vitamin C Face Serum",
+    "category": "Skincare",
+    "price_mrp": 599,
+    "price_launch": 499,
+    "currency": "INR",
+    "key_features": [
+      "Vitamin C + Turmeric formula",
+      "Made-Safe certified, toxin-free",
+      "30 ml glass dropper bottle"
+    ],
+    "distribution_channels": ["Nykaa", "Amazon India", "Mamaearth D2C", "Flipkart"],
+    "marketing_copy": "Glow naturally with India's first toxin-free Vitamin C face serum.",
+    "competitor_context": "The Ordinary Vit-C (₹650-800), Plum 15% Vit-C (₹775), Lakmé Absolute (₹500-700)",
+    "target_segment": "Skincare-conscious urban women, SEC A1-B1, age 22-35"
+  }
 }

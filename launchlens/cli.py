@@ -270,18 +270,31 @@ async def _run_real_sim(opts: argparse.Namespace) -> int:
     store = MemoryStore()
     await store.init_all({p.agent_id: p.biography for p in personas})
 
-    # Product
-    product = ProductStimulus(
-        product_id="prod_demo",
-        product_name="FreshBite Protein Bar",
-        category="Health & Nutrition",
-        price_mrp=99, price_launch=79,
-        key_features=["20g protein", "No added sugar", "Mango / Chocolate / Peanut"],
-        distribution_channels=["Amazon India", "BigBasket"],
-        marketing_copy="Fuel your grind. India's first truly tasty protein bar.",
-        competitor_context="Yoga Bar (₹50-80), RiteBite Max (₹80-120)",
-        target_segment="Health-conscious millennials, 22-35, SEC A/B",
-    )
+    # Product. If --calibrate is set and the fixture carries a 'product' block,
+    # use that so the sim and the ground truth are about the same product.
+    product: ProductStimulus | None = None
+    if opts.calibrate:
+        from launchlens.phase5 import load_calibration_case
+        try:
+            case = load_calibration_case(opts.calibrate)
+        except FileNotFoundError:
+            case = None
+        if case is not None and case.product:
+            product = ProductStimulus.model_validate(case.product)
+            print(f"Using product from calibration fixture: {product.product_name} "
+                  f"@ ₹{product.price_launch}")
+    if product is None:
+        product = ProductStimulus(
+            product_id="prod_demo",
+            product_name="FreshBite Protein Bar",
+            category="Health & Nutrition",
+            price_mrp=99, price_launch=79,
+            key_features=["20g protein", "No added sugar", "Mango / Chocolate / Peanut"],
+            distribution_channels=["Amazon India", "BigBasket"],
+            marketing_copy="Fuel your grind. India's first truly tasty protein bar.",
+            competitor_context="Yoga Bar (₹50-80), RiteBite Max (₹80-120)",
+            target_segment="Health-conscious millennials, 22-35, SEC A/B",
+        )
 
     routes = {p.agent_id: LLMRoute(p.llm_route) for p in personas}
 
