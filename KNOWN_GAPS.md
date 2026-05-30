@@ -65,9 +65,31 @@ It is **not** acceptable for:
 
 ---
 
-## Missing real data
+## Real data — grounded so far
 
-`data/raw/` is empty. Every district profile produced by `scripts/fetch_data_indore.py` carries 11/11 fields tagged `provenance='fallback'`. See `ROADMAP.md` "Real Demographic Data Ingestion" for source URLs.
+**Indore (MP001)** is grounded from authoritative public sources via `scripts/fetch_real_data.py`:
+
+| Field | Source | Value |
+|---|---|---|
+| population | Census 2011 | 3,276,697 |
+| urban_share | Census 2011 | 74.09% |
+| sex_ratio | Census 2011 | 928 |
+| literacy_rate | Census 2011 | 80.87% |
+| language_distribution | Census 2011 C-16 | Hindi 71.4%, Malvi 15.1%, Marathi 3.5%, Urdu 2.8%, Sindhi 1.7%, Nimadi 1.4%, Gujarati 1.0%, other 3.1% |
+| median_monthly_hh_expenditure | HCES 2022-23 Stmt 8 (MP × 1.25 wealth-rank adjustment) | ₹26,446 |
+| smartphone_penetration | TRAI Q1 2025 (urban 75% / rural 38% weighted) | 65% |
+| internet_penetration | TRAI Q1 2025 | 61% |
+
+Still fallback (need direct district data):
+- `isec_distribution` — inferred from NFHS-5 wealth-quintile ranking (Indore is in top-5 richest MP districts) but not directly translated from per-district wealth quintile counts. Requires `data/raw/nfhs/nfhs5_district.csv` to upgrade.
+- `age_distribution` — using all-India 2011 pyramid as proxy. District-level age bands not in the public mirrors I could reach; need direct Census C-13 download.
+- `upi_adoption` — derived as 65% × internet penetration; NPCI publishes only state aggregates.
+
+Other districts: 11/11 fallback. `scripts/fetch_real_data.py` accepts a `--district` flag and currently only knows MP001.
+
+## Missing calibration ground truth
+
+`data/calibration/*.json` carry placeholder `real_adoption_curve` values. The Phase 5 metric machinery runs against them and is unit-tested, but `--engine local | sarvam | claude` calibration runs cannot honestly report gate pass/fail until real curves replace the placeholders.
 
 ## Missing calibration ground truth
 
