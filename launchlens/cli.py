@@ -165,6 +165,9 @@ def cmd_run_sim(args: list[str]) -> int:
                    help="Acknowledge projected remote-provider cost above threshold")
     p.add_argument("--skip-personas-llm", action="store_true",
                    help="Use template-only persona biographies (skip LLM bio generation)")
+    p.add_argument("--price-multiplier", type=float, default=1.0,
+                   help="Multiply the product's price_launch and price_mrp by this factor. "
+                        "Use for price-sensitivity A/B experiments. Default 1.0 (no change).")
     p.add_argument("--calibrate", default=None,
                    help="Calibration case id (file under data/calibration/<id>.json)")
     p.add_argument("--out", type=Path, default=Path("./outputs"))
@@ -296,6 +299,20 @@ async def _run_real_sim(opts: argparse.Namespace) -> int:
             target_segment="Health-conscious millennials, 22-35, SEC A/B",
         )
 
+    # Price-sensitivity A/B knob. Multiplies both price_launch and price_mrp.
+    # Leaves competitor_context unchanged so the model sees a clear delta
+    # from the listed competitor band — that's the perturbation we want to test.
+    if opts.price_multiplier != 1.0:
+        original_launch = product.price_launch
+        original_mrp = product.price_mrp
+        product = product.model_copy(update={
+            "price_launch": int(round(product.price_launch * opts.price_multiplier)),
+            "price_mrp": int(round(product.price_mrp * opts.price_multiplier)),
+        })
+        print(f"Price multiplier ×{opts.price_multiplier}: "
+              f"launch ₹{original_launch} → ₹{product.price_launch}  "
+              f"MRP ₹{original_mrp} → ₹{product.price_mrp}")
+
     routes = {p.agent_id: LLMRoute(p.llm_route) for p in personas}
 
     # Run
@@ -305,13 +322,21 @@ async def _run_real_sim(opts: argparse.Namespace) -> int:
         engine_override=opts.engine, model_override=opts.model,
     )
 
-    # Persist
+    # Persist. Filename embeds the price-multiplier so A/B runs don't overwrite.
     opts.out.mkdir(parents=True, exist_ok=True)
-    sim_path = opts.out / f"sim_{opts.district}_{opts.agents}a_{opts.timesteps}t.json"
+    suffix = ""
+    if opts.price_multiplier != 1.0:
+        # 10.0 → "_p10x", 0.5 → "_p0_5x" etc.
+        m = f"{opts.price_multiplier:g}".replace(".", "_")
+        suffix = f"_p{m}x"
+    sim_path = opts.out / f"sim_{opts.district}_{opts.agents}a_{opts.timesteps}t{suffix}.json"
     sim_payload = {
         "product_id": sim_log.product_id,
         "engine": sim_log.engine,
         "n_agents": sim_log.n_agents,
+        "price_launch": product.price_launch,
+        "price_mrp": product.price_mrp,
+        "price_multiplier": opts.price_multiplier,
         "adoption_curve": sim_log.adoption_curve(),
         "parse_failures": sim_log.total_parse_failures,
         "llm_errors": sim_log.total_llm_errors,
@@ -343,7 +368,7 @@ async def _run_real_sim(opts: argparse.Namespace) -> int:
             print(f"⚠ Calibration case not found: {exc}")
         else:
             calibration = calibrate_from_sim_log(sim_log, personas, case)
-            calib_path = opts.out / f"calibration_{opts.calibrate}.json"
+            calib_path = opts.out / f"calibration_{opts.calibrate}{suffix}.json"
             calib_path.write_text(json.dumps({
                 "product_id": calibration.product_id,
                 "engine": calibration.engine,
@@ -360,7 +385,7 @@ async def _run_real_sim(opts: argparse.Namespace) -> int:
                 v = f"{val:.4f}" if isinstance(val, float) else str(val)
                 print(f"  {mark} {metric:<30} {v}")
 
-    report_path = opts.out / f"report_{opts.district}_{opts.agents}a_{opts.timesteps}t.md"
+    report_path = opts.out / f"report_{opts.district}_{opts.agents}a_{opts.timesteps}t{suffix}.md"
     write_report(report_path, product, sim_log, personas, calibration)
     print(f"Report → {report_path}")
 
